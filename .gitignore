@@ -1,0 +1,15 @@
+# 虚拟环境
+.venv/
+
+# 环境变量（含敏感信息）
+.env
+
+# 下载文件
+downloads/
+
+# Token 缓存
+.token_cache.json
+
+# Python
+__pycache__/
+*.pyc
