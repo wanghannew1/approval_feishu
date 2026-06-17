@@ -53,14 +53,14 @@ ready = is_ready_for_print(detail)
 if ready and raw_status == "RUNNING":
     status_text = "审批完成待出纳办理"
 
+serial = detail.get("serial_number") or code
+
 st.title(title)
-st.caption(f"状态: {status_text}  |  单号: {code}")
+st.caption(f"状态: {status_text}  |  审批单编号: `{serial}`")
 
 st.divider()
 
 tab1, tab2, tab3 = st.tabs(["表单字段", "审批人", "附件"])
-
-form_widgets = parse_form(detail)
 
 with tab1:
     non_attachment = [w for w in form_widgets if w.get("type") != "attachmentV2"]
