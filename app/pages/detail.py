@@ -152,8 +152,6 @@ for w in form_widgets:
             col_names = [c for c in all_columns if c in rows_data[0]] if rows_data else []
             table_data = [{c: rd.get(c, "") for c in col_names} for rd in rows_data]
 
-            st.dataframe(table_data, width="stretch", hide_index=True)
-
             ext_items = w.get("ext")
             if isinstance(ext_items, list) and ext_items:
                 summary = {}
@@ -169,8 +167,17 @@ for w in form_widgets:
                     elif val:
                         summary[name] = str(val)
                 if summary:
-                    st.caption("**汇总**")
-                    st.dataframe([summary], width="stretch", hide_index=True)
+                    summary_row = {}
+                    for c in col_names:
+                        if c in summary:
+                            summary_row[c] = summary[c]
+                        elif c == col_names[0]:
+                            summary_row[c] = "**汇总**"
+                        else:
+                            summary_row[c] = ""
+                    table_data.append(summary_row)
+
+            st.dataframe(table_data, width="stretch", hide_index=True)
         continue
 
     st.markdown(f"**{w_name}**")
