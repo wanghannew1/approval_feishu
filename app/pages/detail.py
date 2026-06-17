@@ -158,7 +158,7 @@ if attachments:
         st.markdown(f"📎 **{field_name}**")
         for v in vals:
             fname = v.rsplit("/", 1)[-1].split("?")[0] if v else "文件"
-            st.caption(fname)
+            st.markdown(f"📥 [{fname}]({v})")
 
 # ── 审批记录 ──
 st.divider()
