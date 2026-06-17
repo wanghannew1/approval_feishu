@@ -83,7 +83,7 @@ def _get_credentials():
 # Page config
 # ---------------------------------------------------------------------------
 st.set_page_config(
-    page_title="飞书审批打印工具",
+    page_title="主页",
     page_icon="🖨️",
     layout="wide",
 )

@@ -12,7 +12,7 @@ from app.batch_processor import get_approvers_with_roles, is_ready_for_print
 
 load_dotenv()
 
-st.set_page_config(page_title="审批单详情", page_icon="📋", layout="wide")
+st.set_page_config(page_title="详情页面", page_icon="📋", layout="wide")
 
 code = st.session_state.get("detail_code")
 
