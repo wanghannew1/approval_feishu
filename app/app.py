@@ -27,8 +27,6 @@ from app.batch_processor import (
     process_single_approval,
 )
 from app.feishu_api import (
-    download_file,
-    extract_attachments,
     get_definition,
     get_instance_detail,
     get_tenant_token,
@@ -433,6 +431,19 @@ def render_instance_list():
 
     select_all = st.checkbox("全选", key="select_all")
 
+    # Sync individual checkboxes when "全选" toggles
+    prev_select_all = st.session_state.get("_prev_select_all", False)
+    if select_all != prev_select_all:
+        for d in results:
+            code = d.get("instance_code", "")
+            st.session_state.pop(f"sel_{code}", None)
+        if select_all:
+            st.session_state.selected_instances = {d.get("instance_code", "") for d in results}
+        else:
+            st.session_state.selected_instances = set()
+        st.session_state["_prev_select_all"] = select_all
+        st.rerun()
+
     hdr = st.columns([3, 2, 1, 1, 1, 1, 1, 0.5])
     hdr[0].markdown("**标题**")
     hdr[1].markdown("**审批单编号**")
@@ -500,87 +511,11 @@ def render_batch_actions():
     st.header("🔧 批量操作")
     st.info(f"已选择 {len(selected)} 个实例")
 
-    col_download, col_print = st.columns(2)
-
-    with col_download:
-        if st.button("📥 下载附件", width="stretch"):
-            _handle_download()
-
-    with col_print:
-        if st.button("✍️ 签名并打印", width="stretch"):
-            _handle_sign_and_print()
+    if st.button("📥 下载及签名", width="stretch"):
+        _handle_download_and_sign()
 
 
-def _handle_download():
-    app_id, app_secret = _get_credentials()
-    token = _get_token(app_id, app_secret)
-    if not token:
-        return
-
-    results = st.session_state.query_results
-    selected = st.session_state.selected_instances
-
-    save_dir = Path("./downloads")
-    save_dir.mkdir(parents=True, exist_ok=True)
-
-    total = len(selected)
-    progress = st.progress(0, text=f"下载附件 0/{total}")
-    downloaded_count = 0
-    user_mapping = _load_user_mapping()
-
-    for i, detail in enumerate(results):
-        code = detail.get("instance_code", "")
-        if code not in selected:
-            continue
-
-        try:
-            form_widgets = parse_form(detail)
-            attachments = extract_attachments(form_widgets)
-
-            if not attachments:
-                progress.progress(
-                    (i + 1) / total,
-                    text=f"下载附件 {i + 1}/{total} — 无附件",
-                )
-                continue
-
-            serial = detail.get("serial_number") or code
-            submitter_raw = detail.get("user_id", "")
-            submitter_name = _resolve_user_name(submitter_raw, user_mapping) if submitter_raw else "未知提交人"
-            form_title = ""
-            for w in form_widgets:
-                if w.get("name") == "标题":
-                    form_title = w.get("value", "")
-                    break
-            dir_name = f"{serial}_{submitter_name}_{form_title}" if form_title else f"{serial}_{submitter_name}"
-            for c in '\\/:*?"<>|':
-                dir_name = dir_name.replace(c, "_")
-            dir_name = dir_name.strip() or code[:12]
-            instance_dir = save_dir / dir_name
-            instance_dir.mkdir(parents=True, exist_ok=True)
-
-            for att in attachments:
-                field_name = att.get("field_name", "附件")
-                values = att.get("value", [])
-                for val in values:
-                    try:
-                        filepath = download_file(token, val, str(instance_dir))
-                        downloaded_count += 1
-                        progress.progress(
-                            (i + 1) / total,
-                            text=f"下载附件 {i + 1}/{total} — {Path(filepath).name}",
-                        )
-                    except RuntimeError as e:
-                        st.warning(f"下载 {field_name} 失败: {e}")
-
-        except Exception as e:
-            st.warning(f"处理实例 {code[:8]}... 失败: {e}")
-
-    progress.empty()
-    st.success(f"下载完成，共下载 {downloaded_count} 个文件")
-
-
-def _handle_sign_and_print():
+def _handle_download_and_sign():
     app_id, app_secret = _get_credentials()
     token = _get_token(app_id, app_secret)
     if not token:
@@ -588,7 +523,7 @@ def _handle_sign_and_print():
 
     selected = st.session_state.selected_instances
     total = len(selected)
-    progress = st.progress(0, text=f"签名并打印 0/{total}")
+    progress = st.progress(0, text=f"下载及签名 0/{total}")
 
     success_count = 0
     for i, code in enumerate(selected):
@@ -624,7 +559,7 @@ def _handle_sign_and_print():
             )
 
     progress.empty()
-    st.success(f"处理完成: {success_count}/{total} 成功")
+    st.success(f"下载及签名完成：成功 {success_count}/{total}")
 
 
 def main():
