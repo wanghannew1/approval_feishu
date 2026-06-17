@@ -387,78 +387,52 @@ def render_instance_list():
 
     select_all = st.checkbox("全选", key="select_all")
 
-    display_rows = []
-    for idx, detail in enumerate(results):
-        code = detail.get("instance_code", "")
-        raw_status = detail.get("status", "")
-        status_text = STATUS_DISPLAY.get(raw_status, raw_status)
-        ready = is_ready_for_print(detail)
-        if ready and raw_status == "RUNNING":
-            status_text = "审批完成待出纳办理"
+    if st.button("✕ 关闭详情", key="close_detail_top", help="关闭右侧详情面板"):
+        st.session_state.detail_code = None
+        st.rerun()
 
-        display_rows.append({
-            "选择": idx + 1,
-            "审批名称": detail.get("title") or detail.get("approval_name", "无标题"),
-            "申请编号": code,
-            "提交人": detail.get("submitter_name", "") or detail.get("applicant_name", "") or "—",
-            "提交人部门": detail.get("department_name", "") or _parse_department(detail) or "—",
-            "状态": status_text,
-            "提交时间": _format_datetime(str(detail.get("start_time", ""))),
-            "完成时间": _format_datetime(str(detail.get("end_time", ""))) if detail.get("end_time") else "—",
-            "当前处理人": _current_handler(detail) or "—",
-            "操作": "📋 详情",
-        })
+    # Table header
+    hdr = st.columns([3, 2, 1, 1, 1, 1, 0.5])
+    hdr[0].markdown("**审批名称**")
+    hdr[1].markdown("**申请编号**")
+    hdr[2].markdown("**状态**")
+    hdr[3].markdown("**提交时间**")
+    hdr[4].markdown("**完成时间**")
+    hdr[5].markdown("**当前处理人**")
+    hdr[6].markdown("**详情**")
+    st.divider()
 
-    if display_rows:
-        st.dataframe(
-            display_rows,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "选择": st.column_config.NumberColumn(width="small"),
-                "审批名称": st.column_config.TextColumn(width="large"),
-                "申请编号": st.column_config.TextColumn(width="medium"),
-                "提交人": st.column_config.TextColumn(width="small"),
-                "提交人部门": st.column_config.TextColumn(width="small"),
-                "状态": st.column_config.TextColumn(width="small"),
-                "提交时间": st.column_config.TextColumn(width="small"),
-                "完成时间": st.column_config.TextColumn(width="small"),
-                "当前处理人": st.column_config.TextColumn(width="small"),
-                "操作": st.column_config.TextColumn(width="small"),
-            },
-        )
-
-        # Detail picker — works across all Streamlit versions
-        options = {f"{r['审批名称']} ({r['申请编号']})": r["申请编号"] for r in display_rows}
-        selected_label = st.selectbox(
-            "选择审批单查看详情",
-            options=["—"] + list(options.keys()),
-            key="detail_picker",
-        )
-        if selected_label != "—" and selected_label in options:
-            if st.button("📋 查看详情", key="open_detail_btn", use_container_width=True):
-                st.session_state.detail_code = options[selected_label]
-                st.rerun()
-
-    # Checkbox selection for batch operations
-    st.subheader("选择实例（批量操作）")
     selected = set()
     for idx, detail in enumerate(results):
         code = detail.get("instance_code", "")
-        title = detail.get("title", "无标题")
         raw_status = detail.get("status", "")
         status_text = STATUS_DISPLAY.get(raw_status, raw_status)
         ready = is_ready_for_print(detail)
         if ready and raw_status == "RUNNING":
             status_text = "审批完成待出纳办理"
 
-        checked = st.checkbox(
-            f"**{idx + 1}.** {title} — {status_text}",
+        submit_time = _format_datetime(str(detail.get("start_time", "")))
+        end_time = _format_datetime(str(detail.get("end_time", ""))) if detail.get("end_time") else "—"
+        handler = _current_handler(detail) or "—"
+        title = detail.get("title") or detail.get("approval_name", "无标题")
+
+        row = st.columns([3, 2, 1, 1, 1, 1, 0.5])
+        checked = row[0].checkbox(
+            f"{idx + 1}. {title}",
             value=select_all or code in st.session_state.selected_instances,
             key=f"sel_{code}",
         )
         if checked:
             selected.add(code)
+
+        row[1].markdown(f"`{code}`")
+        row[2].markdown(status_text)
+        row[3].markdown(submit_time)
+        row[4].markdown(end_time)
+        row[5].markdown(handler)
+        if row[6].button("📋", key=f"det_{code}", help="查看详情"):
+            st.session_state.detail_code = code
+            st.rerun()
 
     st.session_state.selected_instances = selected
 
