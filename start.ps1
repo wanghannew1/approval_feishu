@@ -1,8 +1,6 @@
 # Feishu Approval Print Tool - One-Click Launcher
 # Double-click this file or run: .\start.ps1
 
-$ErrorActionPreference = "Stop"
-
 Set-Location $PSScriptRoot
 
 Write-Host "========================================" -ForegroundColor Cyan
@@ -27,18 +25,36 @@ if (Test-Path ".venv\Scripts\Activate.ps1") {
     Write-Host "[1/3] Activating virtual environment..." -ForegroundColor Green
     . .venv\Scripts\Activate.ps1
 }
+elseif (Test-Path ".venv\Scripts\Activate.bat") {
+    Write-Host "[1/3] Activating virtual environment..." -ForegroundColor Green
+    & ".venv\Scripts\Activate.bat"
+}
 else {
     Write-Host "[1/3] No virtual environment found, using system Python..." -ForegroundColor Yellow
 }
 
 # --- 3. Check and install dependencies ---
 Write-Host "[2/3] Checking dependencies..." -ForegroundColor Green
-$check = python -c "import streamlit, requests, dotenv, openpyxl" 2>&1
-if ($LASTEXITCODE -ne 0) {
+
+# Temporarily relax error handling so import failures don't abort the script
+$savedErrorPref = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+
+python -c "import streamlit, requests, dotenv, openpyxl" 2>&1 | Out-Null
+$importFailed = ($LASTEXITCODE -ne 0)
+
+$ErrorActionPreference = $savedErrorPref
+
+if ($importFailed) {
     Write-Host "      Installing dependencies (Tsinghua mirror)..." -ForegroundColor Yellow
+    $ErrorActionPreference = "Continue"
     pip install -r requirements.txt --index-url https://pypi.tuna.tsinghua.edu.cn/simple
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "[ERROR] Dependency installation failed" -ForegroundColor Red
+    $installFailed = ($LASTEXITCODE -ne 0)
+    $ErrorActionPreference = $savedErrorPref
+
+    if ($installFailed) {
+        Write-Host "[ERROR] Dependency installation failed. Try manually:" -ForegroundColor Red
+        Write-Host "        pip install -r requirements.txt --index-url https://pypi.tuna.tsinghua.edu.cn/simple" -ForegroundColor Yellow
         Read-Host "Press Enter to exit"
         exit 1
     }
