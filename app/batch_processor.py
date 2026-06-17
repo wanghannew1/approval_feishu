@@ -190,6 +190,21 @@ def get_approvers_with_roles(details: dict, role_mapping_path: Optional[Path] = 
             "status": approver.get("status"),
         })
 
+    for task in details.get("task_list", []):
+        t_status = task.get("status", "")
+        if t_status not in ("APPROVED", "DONE"):
+            continue
+        uid = task.get("user_id", "")
+        node = task.get("node_name", "")
+        role = role_mapping.get(node)
+        if not role:
+            continue
+        result.append({
+            "approver_name": uid,
+            "role": role,
+            "status": "APPROVED",
+        })
+
     return result
 
 
@@ -464,6 +479,30 @@ def adjust_excel_for_print(ws, signature_positions=None) -> None:
         logger.warning(f"[PRINT] 调整打印设置时出错: {e}")
 
 
+def _convert_xls_to_xlsx(xls_path: Path) -> Optional[Path]:
+    """Convert .xls to .xlsx using LibreOffice (cross-platform)."""
+    xlsx_path = xls_path.with_suffix(".xlsx")
+    try:
+        result = subprocess.run(
+            [
+                "soffice",
+                "--headless",
+                "--convert-to", "xlsx",
+                str(xls_path.resolve()),
+                "--outdir", str(xls_path.parent.resolve()),
+            ],
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode == 0 and xlsx_path.exists():
+            return xlsx_path
+        logger.warning(f"[CONVERT] LibreOffice conversion failed: {result.stderr}")
+    except FileNotFoundError:
+        logger.warning("[CONVERT] LibreOffice not installed")
+    except Exception as e:
+        logger.warning(f"[CONVERT] Conversion error: {e}")
+    return None
+
+
 def _insert_signature_to_excel_openpyxl(
     excel_path: Path,
     approvers: List[Dict],
@@ -661,11 +700,20 @@ def process_single_approval(
 
                 if file_path.suffix.lower() in (".xlsx", ".xls"):
                     if approvers:
-                        logger.info(f"[BATCH] Inserting signatures into {file_path.name}...")
-                        signed_name = f"signed_{file_path.stem}.xlsx"
+                        sign_path = file_path
+                        if file_path.suffix.lower() == ".xls":
+                            converted = _convert_xls_to_xlsx(file_path)
+                            if converted:
+                                sign_path = converted
+                            else:
+                                logger.warning(f"[BATCH] Cannot convert .xls, skipping signature: {file_path.name}")
+                                continue
+
+                        logger.info(f"[BATCH] Inserting signatures into {sign_path.name}...")
+                        signed_name = f"signed_{sign_path.stem}.xlsx"
                         signed_path = instance_dir / signed_name
                         success, inserted, actual_signed_path = _insert_signature_to_excel_openpyxl(
-                            file_path, approvers, signatures_dir, signed_path
+                            sign_path, approvers, signatures_dir, signed_path
                         )
                         if success:
                             logger.info(f"[BATCH] Signature insertion success: {inserted}")
