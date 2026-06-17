@@ -4,6 +4,7 @@ Tests for Feishu API module.
 
 import json
 import time
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -15,11 +16,13 @@ from app.feishu_api import (
     get_instance_detail,
     parse_form,
     extract_attachments,
+    download_file,
     BASE_URL,
     TOKEN_URL,
     QUERY_URL,
     INSTANCES_URL,
     INSTANCE_DETAIL_URL,
+    DRIVE_DOWNLOAD_URL,
     CACHE_FILE,
 )
 
@@ -423,3 +426,98 @@ class TestExtractAttachments:
         ]
         result = extract_attachments(widgets)
         assert result[0]["value"] == ["single_token"]
+
+
+class TestDownloadFile:
+    """Test suite for download_file function."""
+
+    def test_download_file_url_format(self, mock_token, tmp_path):
+        """Mock URL download, verify file saved."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Disposition": 'attachment; filename="url_file.txt"'}
+        mock_response.iter_content.return_value = [b"file content"]
+
+        with patch("app.feishu_api.requests.get", return_value=mock_response) as mock_get:
+            result = download_file(mock_token, "https://example.com/file", str(tmp_path))
+            assert Path(result).exists()
+            assert Path(result).name == "url_file.txt"
+            mock_get.assert_called_once_with(
+                "https://example.com/file",
+                headers=get_auth_headers(mock_token),
+                stream=True,
+            )
+
+    def test_download_file_token_format(self, mock_token, tmp_path):
+        """Mock drive API download, verify file saved."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Disposition": 'attachment; filename="token_file.txt"'}
+        mock_response.iter_content.return_value = [b"file content"]
+
+        with patch("app.feishu_api.requests.get", return_value=mock_response) as mock_get:
+            result = download_file(mock_token, "file_token_123", str(tmp_path))
+            assert Path(result).exists()
+            assert Path(result).name == "token_file.txt"
+            mock_get.assert_called_once_with(
+                DRIVE_DOWNLOAD_URL.format(file_token="file_token_123"),
+                headers=get_auth_headers(mock_token),
+                stream=True,
+            )
+
+    def test_download_file_content_disposition(self, mock_token, tmp_path):
+        """Verify filename extracted from header."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Disposition": 'attachment; filename="report.xls"'}
+        mock_response.iter_content.return_value = [b"data"]
+
+        with patch("app.feishu_api.requests.get", return_value=mock_response):
+            result = download_file(mock_token, "https://example.com/file", str(tmp_path))
+            assert Path(result).name == "report.xls"
+
+    def test_download_file_stream(self, mock_token, tmp_path):
+        """Verify stream download for large files."""
+        chunks = [b"a" * 4096, b"b" * 4096, b"c" * 1024]
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Disposition": 'attachment; filename="large.bin"'}
+        mock_response.iter_content.return_value = chunks
+
+        with patch("app.feishu_api.requests.get", return_value=mock_response) as mock_get:
+            result = download_file(mock_token, "tok1", str(tmp_path))
+
+            assert mock_get.call_args.kwargs.get("stream") is True
+            mock_response.iter_content.assert_called_once_with(chunk_size=8192)
+            assert Path(result).read_bytes() == b"".join(chunks)
+
+    def test_download_file_404(self, mock_token, tmp_path):
+        """Mock 404, verify RuntimeError."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+
+        with patch("app.feishu_api.requests.get", return_value=mock_response):
+            with pytest.raises(RuntimeError, match="下载文件失败"):
+                download_file(mock_token, "https://example.com/file", str(tmp_path))
+
+    def test_download_file_403(self, mock_token, tmp_path):
+        """Mock 403, verify RuntimeError."""
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+
+        with patch("app.feishu_api.requests.get", return_value=mock_response):
+            with pytest.raises(RuntimeError, match="下载文件失败"):
+                download_file(mock_token, "file_token_123", str(tmp_path))
+
+    def test_download_file_unquote_filename(self, mock_token, tmp_path):
+        """Verify Chinese filename URL decoded."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {
+            "Content-Disposition": 'attachment; filename="%E5%B7%A5%E8%B5%84%E8%A1%A8.xls"'
+        }
+        mock_response.iter_content.return_value = [b"data"]
+
+        with patch("app.feishu_api.requests.get", return_value=mock_response):
+            result = download_file(mock_token, "tok1", str(tmp_path))
+            assert Path(result).name == "工资表.xls"

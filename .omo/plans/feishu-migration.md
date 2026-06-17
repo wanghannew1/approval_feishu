@@ -934,7 +934,7 @@ print('Cache hit: OK')
   - Files: `feishu_api.py, test/test_feishu_api.py`
   - Pre-commit: `python -m pytest test/test_feishu_api.py -v`
 
-- [ ] 9. 飞书附件下载（修复Bug 1）
+- [x] 9. 飞书附件下载（修复Bug 1）
 
   **What to do**:
   - TDD: 先写测试 test_feishu_api.py::test_download_attachment
@@ -1027,7 +1027,7 @@ if a:
   - Files: `feishu_api.py, test/test_feishu_api.py`
   - Pre-commit: `python -m pytest test/test_feishu_api.py -v`
 
-- [ ] 10. 审批状态判断重写（适配飞书approver_list）
+- [x] 10. 审批状态判断重写（适配飞书approver_list）
 
   **What to do**:
   - 用飞书 `approver_list` 重写 PaySignPrinter 的审批状态判断函数：

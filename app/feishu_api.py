@@ -7,10 +7,12 @@ query approval instances, and download attachments.
 
 import json
 import os
+import re
 import threading
 import time
 from pathlib import Path
 from typing import Optional
+from urllib.parse import unquote
 
 import requests
 
@@ -321,17 +323,59 @@ def extract_attachments(form_widgets: list[dict]) -> list[dict]:
     return attachments
 
 
-def download_file(headers: dict, file_token_or_url: str, save_dir: str) -> str:
+def download_file(token: str, file_token_or_url: str, save_dir: str) -> str:
     """
     Download a file from Feishu Drive.
 
+    Auto-detects whether the input is a direct URL or a file_token.
+    If it starts with "http", downloads directly from the URL.
+    Otherwise, uses the Feishu Drive API download endpoint.
+
+    Extracts the filename from the Content-Disposition header and
+    URL-decodes it to support Chinese characters.
+    Uses streaming download for large files.
+
     Args:
-        headers: Authorization headers.
+        token: Valid tenant access token.
         file_token_or_url: File token or direct URL.
         save_dir: Directory to save the downloaded file.
 
     Returns:
         Path to the saved file.
+
+    Raises:
+        RuntimeError: If the download fails (4xx/5xx status).
     """
-    # TODO: Implement
-    pass
+    headers = get_auth_headers(token)
+
+    if file_token_or_url.startswith("http"):
+        url = file_token_or_url
+    else:
+        url = DRIVE_DOWNLOAD_URL.format(file_token=file_token_or_url)
+
+    resp = requests.get(url, headers=headers, stream=True)
+
+    if resp.status_code >= 400:
+        raise RuntimeError(
+            f"下载文件失败: status={resp.status_code}"
+        )
+
+    filename = None
+    cd = resp.headers.get("Content-Disposition", "")
+    if cd:
+        match = re.search(r'filename[*]?\s*=\s*(?:UTF-8\'\')?"?([^";\s]+)', cd)
+        if match:
+            filename = unquote(match.group(1))
+
+    if not filename:
+        filename = f"{file_token_or_url}.temp"
+
+    save_path = Path(save_dir)
+    save_path.mkdir(parents=True, exist_ok=True)
+    filepath = save_path / filename
+
+    with open(filepath, "wb") as f:
+        for chunk in resp.iter_content(chunk_size=8192):
+            f.write(chunk)
+
+    return str(filepath)
