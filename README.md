@@ -6,11 +6,17 @@
 
 ```
 approval_feishu/
-├── API.md              # 飞书审批 API 接口文档（5 个端点）
-├── test_api.py         # API 测试脚本（逐个测试全部接口）
+├── app/                # 正式代码（待迁移实现）
+│   └── __init__.py
+├── test/               # 测试代码
+│   ├── __init__.py
+│   └── test_api.py     # API 测试脚本
+├── API.md              # 飞书审批 API 接口文档
 ├── requirements.txt    # Python 依赖
+├── pyproject.toml      # 项目配置（uv + 清华镜像）
 ├── .env.example        # 环境变量模板
-└── .venv/              # uv 虚拟环境
+├── downloads/          # 下载的附件
+└── signatures/         # 签名图片（待添加）
 ```
 
 ## 快速开始
@@ -50,7 +56,7 @@ FEISHU_APPROVAL_CODE=your_approval_code
 ### 3. 运行测试
 
 ```bash
-python test_api.py
+python test/test_api.py
 ```
 
 ## 涉及的飞书 API
