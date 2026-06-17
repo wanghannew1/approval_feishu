@@ -507,7 +507,9 @@ def _insert_signature_to_excel_openpyxl(
                 logger.info(f"[SIGN] Role '{role}' not in positions")
                 continue
 
-            sig_path = get_signature_path(approver_name, signatures_dir)
+            name_to_uid = _build_name_to_uid_mapping()
+            uid = name_to_uid.get(approver_name, "")
+            sig_path = get_signature_path(approver_name, signatures_dir, uid)
             if not sig_path:
                 logger.warning(f"[SIGN] Signature image not found for {approver_name}")
                 continue
@@ -546,17 +548,30 @@ def sanitize_dir_name(name: str) -> str:
     return name.strip()
 
 
-def get_signature_path(approver_name: str, signatures_dir: Path) -> Optional[Path]:
-    """Look up signature PNG file for an approver by name."""
-    if not approver_name:
-        return None
-    sig_path = signatures_dir / f"{approver_name}.png"
-    if sig_path.exists():
-        return sig_path
-    for f in signatures_dir.glob("*.png"):
-        if approver_name in f.name:
-            return f
+def get_signature_path(approver_name: str, signatures_dir: Path, user_id: str = "") -> Optional[Path]:
+    """Look up signature PNG file for an approver, by user_id first then by name."""
+    if user_id:
+        sig_path = signatures_dir / f"{user_id}.png"
+        if sig_path.exists():
+            return sig_path
+    if approver_name:
+        sig_path = signatures_dir / f"{approver_name}.png"
+        if sig_path.exists():
+            return sig_path
+        for f in signatures_dir.glob("*.png"):
+            if approver_name in f.name or (user_id and user_id in f.name):
+                return f
     return None
+
+
+def _build_name_to_uid_mapping() -> dict:
+    mapping_path = Path(__file__).parent / "user_mapping.json"
+    try:
+        with open(mapping_path, "r", encoding="utf-8") as f:
+            forward = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    return {name: uid for uid, name in forward.items() if name}
 
 
 def process_single_approval(
