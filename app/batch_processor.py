@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as XLImage
+from openpyxl.utils import get_column_letter
 
 from app.feishu_api import download_file, extract_attachments, get_instance_detail, parse_form
 
@@ -304,8 +305,6 @@ def _is_cell_in_merged_range(ws, row, col):
 
 
 def _split_merged_for_text(ws, row, col):
-    from openpyxl.utils import get_column_letter
-
     merged = _is_cell_in_merged_range(ws, row, col)
     if not merged:
         cell = ws.cell(row=row, column=col)
@@ -720,7 +719,13 @@ def process_single_approval(
 
     save_dir = Path(config.get("save_dir", "./downloads"))
     serial = detail.get("serial_number") or instance_code
-    submitter_name = detail.get("user_id", "")
+    name_to_uid = _build_name_to_uid_mapping()
+    uid = detail.get("user_id", "")
+    submitter_name = uid
+    for name, mid in name_to_uid.items():
+        if mid == uid:
+            submitter_name = name
+            break
     form_title = ""
     for w in form_widgets:
         if w.get("name") == "标题":
