@@ -422,6 +422,17 @@ def _current_handler(detail):
     return ""
 
 
+def _on_select_all_change():
+    results = st.session_state.get("query_results", [])
+    is_all = st.session_state.select_all
+    for d in results:
+        code = d.get("instance_code", "")
+        st.session_state[f"sel_{code}"] = is_all
+    st.session_state.selected_instances = {
+        d.get("instance_code", "") for d in results
+    } if is_all else set()
+
+
 def render_instance_list():
     results = st.session_state.query_results
     if not results:
@@ -429,20 +440,7 @@ def render_instance_list():
 
     st.header("📝 审批实例列表")
 
-    select_all = st.checkbox("全选", key="select_all")
-
-    # Sync individual checkboxes when "全选" toggles
-    prev_select_all = st.session_state.get("_prev_select_all", False)
-    if select_all != prev_select_all:
-        for d in results:
-            code = d.get("instance_code", "")
-            st.session_state.pop(f"sel_{code}", None)
-        if select_all:
-            st.session_state.selected_instances = {d.get("instance_code", "") for d in results}
-        else:
-            st.session_state.selected_instances = set()
-        st.session_state["_prev_select_all"] = select_all
-        st.rerun()
+    select_all = st.checkbox("全选", key="select_all", on_change=_on_select_all_change)
 
     hdr = st.columns([3, 2, 1, 1, 1, 1, 1, 0.5])
     hdr[0].markdown("**标题**")
@@ -484,7 +482,6 @@ def render_instance_list():
         row = st.columns([3, 2, 1, 1, 1, 1, 1, 0.5])
         checked = row[0].checkbox(
             f"{idx + 1}. {title}",
-            value=select_all or code in st.session_state.selected_instances,
             key=f"sel_{code}",
         )
         if checked:

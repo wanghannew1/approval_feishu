@@ -248,43 +248,44 @@ class TestProcessSingleApproval:
     @patch("app.batch_processor.extract_attachments")
     @patch("app.batch_processor.parse_form")
     @patch("app.batch_processor.get_instance_detail")
-    def test_process_skips_non_approved_instance(
+    def test_process_downloads_non_approved_instance(
         self, mock_detail, mock_parse, mock_extract
     ):
-        """Test that non-APPROVED instances are skipped."""
+        """Test that non-APPROVED instances still download but skip signing."""
         mock_detail.return_value = {
             "instance_code": "test123",
-            "title": "测试审批",
+            "approval_name": "测试审批",
             "status": "PENDING",
         }
+        mock_parse.return_value = []
+        mock_extract.return_value = [{"field_name": "工资表", "value": ["url"]}]
 
         result = process_single_approval("test123", "fake_token", {})
 
-        assert result["skipped"] is True
-        assert result["message"] == "审批未通过"
-        mock_extract.assert_not_called()
+        assert result["skipped"] is False
+        assert "审批未通过" not in result.get("message", "")
 
     @patch("app.batch_processor.get_approvers_with_roles")
     @patch("app.batch_processor.extract_attachments")
     @patch("app.batch_processor.parse_form")
     @patch("app.batch_processor.get_instance_detail")
-    def test_process_skips_when_no_approvers_with_roles(
+    def test_process_downloads_without_signers(
         self, mock_detail, mock_parse, mock_extract, mock_approvers
     ):
-        """Test when no approvers have valid roles - returns failure not skipped."""
+        """Test that instances without valid signers still download."""
         mock_detail.return_value = {
             "instance_code": "test123",
-            "title": "测试审批",
+            "approval_name": "测试审批",
             "status": "APPROVED",
             "approver_list": [],
         }
         mock_approvers.return_value = []
         mock_parse.return_value = []
+        mock_extract.return_value = [{"field_name": "工资表", "value": ["url"]}]
 
         result = process_single_approval("test123", "fake_token", {})
 
-        assert result["success"] is False
-        assert result["message"] == "未找到可签名的审批角色"
+        assert result["skipped"] is False
 
     @patch("app.batch_processor.get_approvers_with_roles")
     @patch("app.batch_processor.extract_attachments")
@@ -359,7 +360,7 @@ class TestProcessSingleApproval:
         """Test that result contains the correct instance_code."""
         mock_detail.return_value = {
             "instance_code": "instance_abc",
-            "title": "标题",
+            "approval_name": "标题",
             "status": "APPROVED",
         }
         mock_approvers.return_value = []

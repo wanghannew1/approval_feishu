@@ -598,21 +598,16 @@ def process_single_approval(
         result["message"] = f"获取详情失败: {e}"
         return result
 
-    result["title"] = detail.get("title", instance_code[:20])
+    result["title"] = detail.get("approval_name", instance_code[:20])
 
-    if not is_approval_passed(detail):
-        result["skipped"] = True
-        result["message"] = "审批未通过"
-        return result
-
-    role_mapping_path = config.get("role_mapping_path")
-    if role_mapping_path:
-        role_mapping_path = Path(role_mapping_path)
-    approvers = get_approvers_with_roles(detail, role_mapping_path)
-    approvers = [a for a in approvers if a.get("status") == "APPROVED" and a.get("role")]
-    if not approvers:
-        result["message"] = "未找到可签名的审批角色"
-        return result
+    signature_ready = is_approval_passed(detail)
+    approvers = []
+    if signature_ready:
+        role_mapping_path = config.get("role_mapping_path")
+        if role_mapping_path:
+            role_mapping_path = Path(role_mapping_path)
+        approvers = get_approvers_with_roles(detail, role_mapping_path)
+        approvers = [a for a in approvers if a.get("status") == "APPROVED" and a.get("role")]
 
     form_widgets = parse_form(detail)
     attachments = extract_attachments(form_widgets)
@@ -645,18 +640,21 @@ def process_single_approval(
             result["downloaded"].append(file_path.name)
 
             if file_path.suffix.lower() in (".xlsx", ".xls"):
-                logger.info(f"[BATCH] Inserting signatures into {file_path.name}...")
-                signed_name = f"signed_{file_path.stem}.xlsx"
-                signed_path = instance_dir / signed_name
-                success, inserted, actual_signed_path = _insert_signature_to_excel_openpyxl(
-                    file_path, approvers, signatures_dir, signed_path
-                )
-                if success:
-                    logger.info(f"[BATCH] Signature insertion success: {inserted}")
-                    result["signed"].extend(inserted)
-                    result["signed_files"].append(str(actual_signed_path))
+                if signature_ready and approvers:
+                    logger.info(f"[BATCH] Inserting signatures into {file_path.name}...")
+                    signed_name = f"signed_{file_path.stem}.xlsx"
+                    signed_path = instance_dir / signed_name
+                    success, inserted, actual_signed_path = _insert_signature_to_excel_openpyxl(
+                        file_path, approvers, signatures_dir, signed_path
+                    )
+                    if success:
+                        logger.info(f"[BATCH] Signature insertion success: {inserted}")
+                        result["signed"].extend(inserted)
+                        result["signed_files"].append(str(actual_signed_path))
+                    else:
+                        logger.warning(f"[BATCH] Signature insertion failed for {file_path.name}")
                 else:
-                    logger.warning(f"[BATCH] Signature insertion failed for {file_path.name}")
+                    logger.info(f"[BATCH] Skipping signature for {file_path.name} (approval not passed or no signers)")
             else:
                 logger.info(f"[BATCH] Non-Excel file, skipping signature: {file_path.name}")
 
