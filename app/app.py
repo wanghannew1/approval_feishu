@@ -6,21 +6,25 @@ inserting signatures, and printing payroll sheets.
 """
 
 import os
+import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+_PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(_PROJECT_ROOT))
+
 import streamlit as st
 from dotenv import load_dotenv
 
-from .batch_processor import (
+from app.batch_processor import (
     get_approvers_with_roles,
     is_approval_passed,
     is_ready_for_print,
     process_single_approval,
 )
-from .cache_manager import DownloadURLCache, InstanceDetailCache
-from .feishu_api import (
+from app.cache_manager import DownloadURLCache, InstanceDetailCache
+from app.feishu_api import (
     download_file,
     extract_attachments,
     get_instance_detail,

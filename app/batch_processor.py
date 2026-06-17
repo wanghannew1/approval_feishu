@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as XLImage
 
-from .feishu_api import download_file, extract_attachments, get_instance_detail, parse_form
+from app.feishu_api import download_file, extract_attachments, get_instance_detail, parse_form
 
 logger = logging.getLogger(__name__)
 
