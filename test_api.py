@@ -7,6 +7,7 @@ import re
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import unquote
 
 import requests
 from dotenv import load_dotenv
@@ -181,7 +182,7 @@ def test_download_file(file_token_or_url: str, save_dir: Path) -> Path:
     if cd:
         match = re.search(r'filename[*]?\s*=\s*(?:UTF-8\'\')?"?([^";\s]+)', cd)
         if match:
-            filename = match.group(1)
+            filename = unquote(match.group(1))
 
     if not filename:
         filename = f"{file_token_or_url}.temp"
