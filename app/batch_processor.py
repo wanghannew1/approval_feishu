@@ -616,7 +616,16 @@ def process_single_approval(
         return result
 
     save_dir = Path(config.get("save_dir", "./downloads"))
-    instance_dir = save_dir / sanitize_dir_name(instance_code)
+    serial = detail.get("serial_number") or instance_code
+    submitter_name = detail.get("user_id", "")
+    form_title = ""
+    for w in form_widgets:
+        if w.get("name") == "标题":
+            form_title = w.get("value", "")
+            break
+    dir_name = f"{serial}_{submitter_name}_{form_title}" if form_title else f"{serial}_{submitter_name}"
+    dir_name = sanitize_dir_name(dir_name) or sanitize_dir_name(instance_code)
+    instance_dir = save_dir / dir_name
     instance_dir.mkdir(parents=True, exist_ok=True)
 
     signatures_dir = Path(config.get("signatures_dir", "./signatures"))
@@ -631,36 +640,35 @@ def process_single_approval(
             logger.info(f"[BATCH] Skipping summary table: {field_name}")
             continue
 
-        file_token = values[0]
+        for file_token in values:
+            try:
+                logger.info(f"[BATCH] Processing attachment: {field_name}")
+                downloaded_path = download_file(token, file_token, str(instance_dir))
+                file_path = Path(downloaded_path)
+                result["downloaded"].append(file_path.name)
 
-        try:
-            logger.info(f"[BATCH] Processing attachment: {field_name}")
-            downloaded_path = download_file(token, file_token, str(instance_dir))
-            file_path = Path(downloaded_path)
-            result["downloaded"].append(file_path.name)
-
-            if file_path.suffix.lower() in (".xlsx", ".xls"):
-                if signature_ready and approvers:
-                    logger.info(f"[BATCH] Inserting signatures into {file_path.name}...")
-                    signed_name = f"signed_{file_path.stem}.xlsx"
-                    signed_path = instance_dir / signed_name
-                    success, inserted, actual_signed_path = _insert_signature_to_excel_openpyxl(
-                        file_path, approvers, signatures_dir, signed_path
-                    )
-                    if success:
-                        logger.info(f"[BATCH] Signature insertion success: {inserted}")
-                        result["signed"].extend(inserted)
-                        result["signed_files"].append(str(actual_signed_path))
+                if file_path.suffix.lower() in (".xlsx", ".xls"):
+                    if signature_ready and approvers:
+                        logger.info(f"[BATCH] Inserting signatures into {file_path.name}...")
+                        signed_name = f"signed_{file_path.stem}.xlsx"
+                        signed_path = instance_dir / signed_name
+                        success, inserted, actual_signed_path = _insert_signature_to_excel_openpyxl(
+                            file_path, approvers, signatures_dir, signed_path
+                        )
+                        if success:
+                            logger.info(f"[BATCH] Signature insertion success: {inserted}")
+                            result["signed"].extend(inserted)
+                            result["signed_files"].append(str(actual_signed_path))
+                        else:
+                            logger.warning(f"[BATCH] Signature insertion failed for {file_path.name}")
                     else:
-                        logger.warning(f"[BATCH] Signature insertion failed for {file_path.name}")
+                        logger.info(f"[BATCH] Skipping signature for {file_path.name} (approval not passed or no signers)")
                 else:
-                    logger.info(f"[BATCH] Skipping signature for {file_path.name} (approval not passed or no signers)")
-            else:
-                logger.info(f"[BATCH] Non-Excel file, skipping signature: {file_path.name}")
+                    logger.info(f"[BATCH] Non-Excel file, skipping signature: {file_path.name}")
 
-        except Exception as e:
-            logger.error(f"[BATCH] Error processing {field_name}: {e}")
-            continue
+            except Exception as e:
+                logger.error(f"[BATCH] Error processing {field_name}: {e}")
+                continue
 
     result["success"] = True
     result["message"] = (
