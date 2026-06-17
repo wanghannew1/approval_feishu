@@ -526,6 +526,7 @@ def _handle_download():
     total = len(selected)
     progress = st.progress(0, text=f"下载附件 0/{total}")
     downloaded_count = 0
+    user_mapping = _load_user_mapping()
 
     for i, detail in enumerate(results):
         code = detail.get("instance_code", "")
@@ -543,7 +544,19 @@ def _handle_download():
                 )
                 continue
 
-            instance_dir = save_dir / code[:12]
+            serial = detail.get("serial_number") or code
+            submitter_raw = detail.get("user_id", "")
+            submitter_name = _resolve_user_name(submitter_raw, user_mapping) if submitter_raw else "未知提交人"
+            form_title = ""
+            for w in form_widgets:
+                if w.get("name") == "标题":
+                    form_title = w.get("value", "")
+                    break
+            dir_name = f"{serial}_{submitter_name}_{form_title}" if form_title else f"{serial}_{submitter_name}"
+            for c in '\\/:*?"<>|':
+                dir_name = dir_name.replace(c, "_")
+            dir_name = dir_name.strip() or code[:12]
+            instance_dir = save_dir / dir_name
             instance_dir.mkdir(parents=True, exist_ok=True)
 
             for att in attachments:
