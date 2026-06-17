@@ -10,6 +10,9 @@ downloads/
 # Token 缓存
 .token_cache.json
 
+# 签名图片
+signatures/
+
 # Python
 __pycache__/
 *.pyc
