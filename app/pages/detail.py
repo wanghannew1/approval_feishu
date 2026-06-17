@@ -100,7 +100,7 @@ start_time = _fmt(str(detail.get("start_time", "")))
 submitter_name = _resolve_name(detail.get("user_id", ""), user_mapping) or detail.get("user_id", "")
 
 # ── header ───────────────────────────────────────────────────────────────────
-st.caption(f"编号：{serial}")
+st.caption(f"编号：{serial}  |  instance_id: `{code}`")
 st.subheader(approval_name)
 
 col_status, col_meta = st.columns([1, 3])
