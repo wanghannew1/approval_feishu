@@ -615,14 +615,11 @@ def process_single_approval(
 
     result["title"] = detail.get("approval_name", instance_code[:20])
 
-    signature_ready = is_approval_passed(detail)
-    approvers = []
-    if signature_ready:
-        role_mapping_path = config.get("role_mapping_path")
-        if role_mapping_path:
-            role_mapping_path = Path(role_mapping_path)
-        approvers = get_approvers_with_roles(detail, role_mapping_path)
-        approvers = [a for a in approvers if a.get("status") == "APPROVED" and a.get("role")]
+    role_mapping_path = config.get("role_mapping_path")
+    if role_mapping_path:
+        role_mapping_path = Path(role_mapping_path)
+    approvers = get_approvers_with_roles(detail, role_mapping_path)
+    approvers = [a for a in approvers if a.get("status") == "APPROVED" and a.get("role")]
 
     form_widgets = parse_form(detail)
     attachments = extract_attachments(form_widgets)
@@ -663,7 +660,7 @@ def process_single_approval(
                 result["downloaded"].append(file_path.name)
 
                 if file_path.suffix.lower() in (".xlsx", ".xls"):
-                    if signature_ready and approvers:
+                    if approvers:
                         logger.info(f"[BATCH] Inserting signatures into {file_path.name}...")
                         signed_name = f"signed_{file_path.stem}.xlsx"
                         signed_path = instance_dir / signed_name
@@ -677,7 +674,7 @@ def process_single_approval(
                         else:
                             logger.warning(f"[BATCH] Signature insertion failed for {file_path.name}")
                     else:
-                        logger.info(f"[BATCH] Skipping signature for {file_path.name} (approval not passed or no signers)")
+                        logger.info(f"[BATCH] No approved approvers with roles, skipping signature: {file_path.name}")
                 else:
                     logger.info(f"[BATCH] Non-Excel file, skipping signature: {file_path.name}")
 
