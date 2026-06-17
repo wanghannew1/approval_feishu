@@ -366,18 +366,6 @@ def _current_handler(detail):
     return ""
 
 
-def _parse_department(detail):
-    form_str = detail.get("form", "[]")
-    try:
-        widgets = json.loads(form_str) if isinstance(form_str, str) else form_str
-        for w in widgets:
-            if "部门" in w.get("name", ""):
-                return str(w.get("value", ""))
-    except (json.JSONDecodeError, TypeError):
-        pass
-    return ""
-
-
 def render_instance_list():
     results = st.session_state.query_results
     if not results:
@@ -387,11 +375,6 @@ def render_instance_list():
 
     select_all = st.checkbox("全选", key="select_all")
 
-    if st.button("✕ 关闭详情", key="close_detail_top", help="关闭右侧详情面板"):
-        st.session_state.detail_code = None
-        st.rerun()
-
-    # Table header
     hdr = st.columns([3, 2, 1, 1, 1, 1, 0.5])
     hdr[0].markdown("**审批名称**")
     hdr[1].markdown("**申请编号**")
@@ -432,7 +415,7 @@ def render_instance_list():
         row[5].markdown(handler)
         if row[6].button("📋", key=f"det_{code}", help="查看详情"):
             st.session_state.detail_code = code
-            st.rerun()
+            st.switch_page("app/pages/detail.py")
 
     st.session_state.selected_instances = selected
 
@@ -559,96 +542,11 @@ def _handle_sign_and_print():
     st.success(f"处理完成: {success_count}/{total} 成功")
 
 
-def _render_detail_drawer():
-    code = st.session_state.detail_code
-    if not code:
-        return
-
-    detail = st.session_state.instance_details_cache.get(code)
-    if not detail:
-        st.info("加载中...")
-        return
-
-    title = detail.get("title", "无标题")
-    raw_status = detail.get("status", "")
-    status_text = STATUS_DISPLAY.get(raw_status, raw_status)
-    ready = is_ready_for_print(detail)
-    if ready and raw_status == "RUNNING":
-        status_text = "审批完成待出纳办理"
-
-    c1, c2 = st.columns([4, 1])
-    c1.subheader("审批单详情")
-    if c2.button("✕ 关闭", key="close_detail", use_container_width=True):
-        st.session_state.detail_code = None
-        st.rerun()
-
-    st.caption(f"**{title}**")
-    st.caption(f"状态: {status_text}  |  单号: {code}")
-    st.caption(f"提交时间: {_format_datetime(str(detail.get('start_time', '')))}")
-
-    st.divider()
-
-    tab1, tab2, tab3 = st.tabs(["表单字段", "审批人", "附件"])
-
-    form_widgets = parse_form(detail)
-
-    with tab1:
-        non_attachment_widgets = [w for w in form_widgets if w.get("type") != "attachmentV2"]
-        if non_attachment_widgets:
-            form_data = []
-            for w in non_attachment_widgets:
-                form_data.append({
-                    "字段": w.get("name", ""),
-                    "类型": w.get("type", ""),
-                    "值": str(w.get("value", "")) if w.get("value") else "",
-                })
-            st.dataframe(form_data, use_container_width=True, hide_index=True)
-        else:
-            st.info("无文本表单字段")
-
-    with tab2:
-        approvers = get_approvers_with_roles(detail)
-        if approvers:
-            approver_data = []
-            for a in approvers:
-                a_status = STATUS_DISPLAY.get(a.get("status", ""), a.get("status", ""))
-                approver_data.append({
-                    "审批人": a.get("approver_name", ""),
-                    "角色": a.get("role") or "—",
-                    "状态": a_status,
-                })
-            st.dataframe(approver_data, use_container_width=True, hide_index=True)
-        else:
-            st.info("无审批人信息")
-
-    with tab3:
-        attachments = extract_attachments(form_widgets)
-        if attachments:
-            for att in attachments:
-                field_name = att.get("field_name", "附件")
-                values = att.get("value", [])
-                st.markdown(f"**{field_name}** ({len(values)} 个文件)")
-                for v in values:
-                    st.code(v, language=None)
-        else:
-            st.info("无附件")
-
-
 def main():
     approval_code = render_sidebar()
-
-    if st.session_state.detail_code:
-        main_col, drawer_col = st.columns([5, 3])
-        with main_col:
-            render_query_panel(approval_code)
-            render_instance_list()
-            render_batch_actions()
-        with drawer_col:
-            _render_detail_drawer()
-    else:
-        render_query_panel(approval_code)
-        render_instance_list()
-        render_batch_actions()
+    render_query_panel(approval_code)
+    render_instance_list()
+    render_batch_actions()
 
 
 if __name__ == "__main__":
