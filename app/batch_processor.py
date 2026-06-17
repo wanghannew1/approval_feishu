@@ -479,8 +479,8 @@ def adjust_excel_for_print(ws, signature_positions=None) -> None:
         logger.warning(f"[PRINT] 调整打印设置时出错: {e}")
 
 
-def _convert_xls_to_xlsx(xls_path: Path) -> Optional[Path]:
-    """Convert .xls to .xlsx using LibreOffice (cross-platform)."""
+def _convert_xls_to_xlsx_libreoffice(xls_path: Path) -> Optional[Path]:
+    """Convert .xls to .xlsx using LibreOffice (cross-platform fallback)."""
     xlsx_path = xls_path.with_suffix(".xlsx")
     try:
         result = subprocess.run(
@@ -501,6 +501,58 @@ def _convert_xls_to_xlsx(xls_path: Path) -> Optional[Path]:
     except Exception as e:
         logger.warning(f"[CONVERT] Conversion error: {e}")
     return None
+
+
+def _convert_xls_to_xlsx_windows(xls_path: Path) -> Optional[Path]:
+    """Try WPS/Excel COM first, fallback to LibreOffice."""
+    try:
+        import pythoncom
+        import win32com.client
+
+        pythoncom.CoInitialize()
+        excel = None
+        wb = None
+        try:
+            xlsx_path = xls_path.with_suffix(".xlsx")
+            excel = win32com.client.Dispatch("Excel.Application")
+            excel.Visible = False
+            excel.DisplayAlerts = False
+            wb = excel.Workbooks.Open(str(xls_path.resolve()))
+            wb.SaveAs(str(xlsx_path.resolve()), FileFormat=51)
+            wb.Close(SaveChanges=False)
+            excel.Quit()
+            return xlsx_path
+        except Exception as e:
+            logger.warning(f"[CONVERT] WPS/Excel COM failed: {e}, trying without FileFormat...")
+            try:
+                xlsx_path = xls_path.with_suffix(".xlsx")
+                wb = excel.Workbooks.Open(str(xls_path.resolve()))
+                wb.SaveAs(str(xlsx_path.resolve()))
+                wb.Close(SaveChanges=False)
+                excel.Quit()
+                return xlsx_path
+            except Exception as e2:
+                logger.warning(f"[CONVERT] COM retry failed: {e2}, falling back to LibreOffice")
+                return _convert_xls_to_xlsx_libreoffice(xls_path)
+        finally:
+            try:
+                if wb:
+                    wb.Close(SaveChanges=False)
+                if excel:
+                    excel.Quit()
+            except Exception:
+                pass
+            pythoncom.CoUninitialize()
+    except ImportError:
+        logger.warning("[CONVERT] pywin32 not installed, falling back to LibreOffice")
+        return _convert_xls_to_xlsx_libreoffice(xls_path)
+
+
+def _convert_xls_to_xlsx(xls_path: Path) -> Optional[Path]:
+    """Convert .xls to .xlsx: Windows uses WPS/Excel COM, Linux uses LibreOffice."""
+    if platform.system() == "Windows":
+        return _convert_xls_to_xlsx_windows(xls_path)
+    return _convert_xls_to_xlsx_libreoffice(xls_path)
 
 
 def _insert_signature_to_excel_openpyxl(
