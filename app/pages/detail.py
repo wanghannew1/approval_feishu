@@ -125,25 +125,52 @@ for w in form_widgets:
 
     if w_type == "fieldList":
         with st.expander(f"📋 {w_name}", expanded=True):
-            if isinstance(w_value, list):
-                for row_item in w_value:
-                    if isinstance(row_item, list):
-                        for item in row_item:
-                            sub_name = item.get("name", "")
-                            sub_val = item.get("value", "")
-                            sub_type = item.get("type", "")
-                            if sub_type == "amount":
-                                ext = item.get("ext", {})
-                                capital = ext.get("capitalValue", "")
-                                cur = ext.get("currency", "CNY")
-                                val_fmt = f"{sub_val:,.2f}" if isinstance(sub_val, (int, float)) else str(sub_val)
-                                st.write(f"**{sub_name}**  {val_fmt} {cur}-人民币元")
-                                if capital:
-                                    st.caption(capital)
-                            else:
-                                st.write(f"**{sub_name}**  {sub_val}")
+            if not isinstance(w_value, list) or not w_value:
+                continue
+
+            id_to_name = {}
+            all_columns = []
+            rows_data = []
+            for row_item in w_value:
+                if not isinstance(row_item, list):
+                    continue
+                row_dict = {}
+                for item in row_item:
+                    name = item.get("name", "")
+                    val = item.get("value", "")
+                    itype = item.get("type", "")
+                    item_id = item.get("id", "")
+                    if item_id and item_id not in id_to_name:
+                        id_to_name[item_id] = name
+                        all_columns.append(name)
+                    if itype == "amount" and isinstance(val, (int, float)):
+                        row_dict[name] = f"{val:,.2f}"
                     else:
-                        st.write(str(row_item))
+                        row_dict[name] = str(val) if val else ""
+                rows_data.append(row_dict)
+
+            col_names = [c for c in all_columns if c in rows_data[0]] if rows_data else []
+            table_data = [{c: rd.get(c, "") for c in col_names} for rd in rows_data]
+
+            st.dataframe(table_data, width="stretch", hide_index=True)
+
+            ext_items = w.get("ext")
+            if isinstance(ext_items, list) and ext_items:
+                summary = {}
+                for ei in ext_items:
+                    eid = ei.get("id", "")
+                    name = id_to_name.get(eid, eid)
+                    val = ei.get("value", "")
+                    if ei.get("type") == "amount" and val:
+                        try:
+                            summary[name] = f"{float(val):,.2f}"
+                        except ValueError:
+                            summary[name] = val
+                    elif val:
+                        summary[name] = str(val)
+                if summary:
+                    st.caption("**汇总**")
+                    st.dataframe([summary], width="stretch", hide_index=True)
         continue
 
     st.markdown(f"**{w_name}**")
