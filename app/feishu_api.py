@@ -247,19 +247,78 @@ def query_approval_instances(
     pass
 
 
-def get_instance_detail(headers: dict, instance_code: str) -> dict:
+def get_instance_detail(token: str, instance_code: str) -> dict:
     """
     Get detailed information about a specific approval instance.
 
     Args:
-        headers: Authorization headers.
+        token: Valid tenant access token.
         instance_code: Unique identifier for the instance.
 
     Returns:
-        Instance detail data including form and attachments.
+        Instance detail data dictionary.
+
+    Raises:
+        RuntimeError: If the API returns a non-zero code.
     """
-    # TODO: Implement
-    pass
+    headers = get_auth_headers(token)
+    resp = requests.get(
+        INSTANCE_DETAIL_URL.format(instance_code=instance_code),
+        headers=headers,
+    )
+    data = resp.json()
+
+    if data.get("code") != 0:
+        raise RuntimeError(
+            f"获取实例详情失败: code={data.get('code')} msg={data.get('msg')}"
+        )
+
+    return data["data"]
+
+
+def parse_form(detail: dict) -> list[dict]:
+    """
+    Parse the form JSON string from instance detail.
+
+    Args:
+        detail: Instance detail dictionary containing a 'form' key.
+
+    Returns:
+        List of form widgets, each with id, type, name, value.
+        Returns empty list if form is missing or invalid.
+    """
+    form_str = detail.get("form", "[]")
+    try:
+        widgets = json.loads(form_str)
+        if isinstance(widgets, list):
+            return widgets
+        return []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def extract_attachments(form_widgets: list[dict]) -> list[dict]:
+    """
+    Extract attachmentV2 widgets from parsed form.
+
+    Args:
+        form_widgets: List of form widgets.
+
+    Returns:
+        List of attachment dicts with field_name and value.
+        Value is always a list (URLs or file_tokens).
+    """
+    attachments = []
+    for widget in form_widgets:
+        if widget.get("type") == "attachmentV2":
+            value = widget.get("value", [])
+            if not isinstance(value, list):
+                value = [value] if value else []
+            attachments.append({
+                "field_name": widget.get("name", "附件"),
+                "value": value,
+            })
+    return attachments
 
 
 def download_file(headers: dict, file_token_or_url: str, save_dir: str) -> str:

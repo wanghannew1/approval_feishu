@@ -1,42 +1,19 @@
-"""
-Logging configuration for the application.
-
-Sets up structured logging with appropriate handlers and formats.
-"""
-
+import os
+import sys
 import logging
 from pathlib import Path
-from typing import Optional
+from datetime import datetime
 
+# Configure logging
+LOG_FILE = Path(__file__).parent / "app.log"
 
-def setup_logging(
-    level: str = "INFO",
-    log_file: Optional[str] = None,
-    log_dir: str = "logs",
-) -> logging.Logger:
-    """
-    Configure application logging.
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding='utf-8', mode='a'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 
-    Args:
-        level: Logging level (DEBUG, INFO, WARNING, ERROR).
-        log_file: Optional specific log file name.
-        log_dir: Directory for log files.
-
-    Returns:
-        Configured logger instance.
-    """
-    # TODO: Implement
-    pass
-
-
-def get_logger(name: str) -> logging.Logger:
-    """
-    Get a logger instance with the given name.
-
-    Args:
-        name: Logger name (typically __name__).
-
-    Returns:
-        Logger instance.
-    """
-    return logging.getLogger(name)
+logger = logging.getLogger('FeishuApproval')

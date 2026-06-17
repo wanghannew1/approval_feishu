@@ -838,7 +838,7 @@ print('Cache hit: OK')
   - Files: `cache_manager.py, test/test_cache_manager.py`
   - Pre-commit: `python -m pytest test/test_cache_manager.py -v`
 
-- [ ] 8. 飞书审批实例详情 + 表单解析 + 附件提取
+- [x] 8. 飞书审批实例详情 + 表单解析 + 附件提取
 
   **What to do**:
   - TDD: 先写测试 test_feishu_api.py::test_get_instance_detail + test_extract_attachments
@@ -1224,7 +1224,7 @@ print('OK: uses Feishu API')
   - Files: `batch_processor.py`
   - Pre-commit: `python -c "from batch_processor import process_single_approval"`
 
-- [ ] 12. 打印模块适配（Windows COM）
+- [x] 12. 打印模块适配（Windows COM）
 
   **What to do**:
   - 从PaySignPrinter复制打印相关代码到batch_processor.py
@@ -1283,7 +1283,7 @@ print('OK: uses Feishu API')
   - Files: `batch_processor.py`
   - Pre-commit: `python -c "from batch_processor import print_file"`
 
-- [ ] 13. logger_config.py + payroll_sheet_config.json 复制
+- [x] 13. logger_config.py + payroll_sheet_config.json 复制
 
   **What to do**:
   - 从PaySignPrinter复制 logger_config.py，修改项目名称为 approval_feishu

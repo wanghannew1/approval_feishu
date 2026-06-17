@@ -12,10 +12,14 @@ from app.feishu_api import (
     get_tenant_token,
     query_instances,
     list_instances,
+    get_instance_detail,
+    parse_form,
+    extract_attachments,
     BASE_URL,
     TOKEN_URL,
     QUERY_URL,
     INSTANCES_URL,
+    INSTANCE_DETAIL_URL,
     CACHE_FILE,
 )
 
@@ -267,3 +271,155 @@ class TestListInstances:
             result = list_instances(mock_token, "approval_1", "1000", "2000")
             assert result == []
             mock_get.assert_called_once()
+
+
+class TestGetInstanceDetail:
+    """Test suite for get_instance_detail endpoint."""
+
+    def test_get_instance_detail_success(self, mock_token: str):
+        """Mock 200 and verify detail dict returned."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "code": 0,
+            "msg": "success",
+            "data": {
+                "instance_code": "INST-001",
+                "approval_name": "Test Approval",
+                "status": "APPROVED",
+            },
+        }
+        with patch("app.feishu_api.requests.get", return_value=mock_response) as mock_get:
+            result = get_instance_detail(mock_token, "INST-001")
+            assert result["instance_code"] == "INST-001"
+            assert result["approval_name"] == "Test Approval"
+            assert result["status"] == "APPROVED"
+            mock_get.assert_called_once_with(
+                INSTANCE_DETAIL_URL.format(instance_code="INST-001"),
+                headers=get_auth_headers(mock_token),
+            )
+
+    def test_get_instance_detail_with_form(self, mock_token: str):
+        """Mock detail with form field, verify form parsed."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "code": 0,
+            "msg": "success",
+            "data": {
+                "instance_code": "INST-002",
+                "form": '[{"id":"w1","type":"attachmentV2","name":"附件","value":["https://example.com/file"]}]',
+            },
+        }
+        with patch("app.feishu_api.requests.get", return_value=mock_response):
+            detail = get_instance_detail(mock_token, "INST-002")
+            form_widgets = parse_form(detail)
+            assert len(form_widgets) == 1
+            assert form_widgets[0]["type"] == "attachmentV2"
+
+    def test_get_instance_detail_api_error(self, mock_token: str):
+        """Mock code != 0, verify RuntimeError."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "code": 9999,
+            "msg": "instance not found",
+        }
+        with patch("app.feishu_api.requests.get", return_value=mock_response):
+            with pytest.raises(RuntimeError, match="获取实例详情失败"):
+                get_instance_detail(mock_token, "BAD-CODE")
+
+
+class TestParseForm:
+    """Test suite for parse_form helper."""
+
+    def test_parse_form_valid(self):
+        """Test JSON parsing of form string."""
+        detail = {
+            "form": '[{"id":"w1","type":"text","name":"Name","value":"John"}]'
+        }
+        result = parse_form(detail)
+        assert len(result) == 1
+        assert result[0]["id"] == "w1"
+        assert result[0]["type"] == "text"
+        assert result[0]["name"] == "Name"
+        assert result[0]["value"] == "John"
+
+    def test_parse_form_empty(self):
+        """Test empty form returns empty list."""
+        detail = {"form": "[]"}
+        result = parse_form(detail)
+        assert result == []
+
+    def test_parse_form_invalid_json(self):
+        """Test invalid JSON returns empty list."""
+        detail = {"form": "not json"}
+        result = parse_form(detail)
+        assert result == []
+
+    def test_parse_form_missing(self):
+        """Test missing form key returns empty list."""
+        detail = {}
+        result = parse_form(detail)
+        assert result == []
+
+
+class TestExtractAttachments:
+    """Test suite for extract_attachments helper."""
+
+    def test_extract_attachments_single(self):
+        """Test single attachmentV2 extracted."""
+        widgets = [
+            {"id": "w1", "type": "attachmentV2", "name": "附件", "value": ["https://a.com"]}
+        ]
+        result = extract_attachments(widgets)
+        assert len(result) == 1
+        assert result[0]["field_name"] == "附件"
+        assert result[0]["value"] == ["https://a.com"]
+
+    def test_extract_attachments_multiple(self):
+        """Test multiple attachmentV2 widgets."""
+        widgets = [
+            {"id": "w1", "type": "attachmentV2", "name": "File1", "value": ["https://a.com"]},
+            {"id": "w2", "type": "attachmentV2", "name": "File2", "value": ["tok123"]},
+        ]
+        result = extract_attachments(widgets)
+        assert len(result) == 2
+        assert result[0]["field_name"] == "File1"
+        assert result[1]["field_name"] == "File2"
+
+    def test_extract_attachments_url_format(self):
+        """Test URL value format (Bug 1)."""
+        widgets = [
+            {
+                "id": "w1",
+                "type": "attachmentV2",
+                "name": "URL附件",
+                "value": ["https://internal-api-drive-stream.feishu.cn/space/api/box/stream/download/authcode/?code=abc"],
+            }
+        ]
+        result = extract_attachments(widgets)
+        assert len(result) == 1
+        assert result[0]["value"][0].startswith("https://")
+
+    def test_extract_attachments_token_format(self):
+        """Test file_token value format."""
+        widgets = [
+            {"id": "w1", "type": "attachmentV2", "name": "Token附件", "value": ["file_token_123"]}
+        ]
+        result = extract_attachments(widgets)
+        assert len(result) == 1
+        assert result[0]["value"] == ["file_token_123"]
+
+    def test_extract_attachments_empty(self):
+        """Test no attachments returns empty list."""
+        widgets = [
+            {"id": "w1", "type": "text", "name": "Name", "value": "John"}
+        ]
+        result = extract_attachments(widgets)
+        assert result == []
+
+    def test_extract_attachments_non_list_value(self):
+        """Test non-list value is wrapped into a list."""
+        widgets = [
+            {"id": "w1", "type": "attachmentV2", "name": "单个文件", "value": "single_token"}
+        ]
+        result = extract_attachments(widgets)
+        assert result[0]["value"] == ["single_token"]

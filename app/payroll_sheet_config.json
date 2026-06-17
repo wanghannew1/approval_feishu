@@ -1,22 +1,36 @@
 {
-  "_comment": "工资表Sheet检测规则配置",
-  "_description": "用于从Excel文件中定位工资表所在位置",
-  "detection_rules": {
-    "sheet_name_patterns": [
-      "工资",
-      "薪资",
-      " payroll",
-      " Payroll",
-      "payroll"
-    ],
-    "header_row": 1,
-    "name_column": "A",
-    "signature_columns": {
-      "部长签字": "H",
-      "总经理签字": "I",
-      "财务审核": "J",
-      "业务审核": "K"
+    "_comment": "工资发放表识别规则配置 —— 修改此文件即可调整筛选条件，无需改代码",
+
+    "sheet_filter": {
+
+        "row1_title": {
+            "description": "第一行标题必须包含的关键词",
+            "required_keyword": "工资发放表"
+        },
+
+        "row2_org": {
+            "description": "第二行必须包含的关键词（辅助校验）",
+            "required_keyword": "单位名称"
+        },
+
+        "row3_headers": {
+            "description": "第三行列头必须全部包含的字段（缺一不可）",
+            "required": ["转账合计", "应发工资", "实发工资", "实发合计"]
+        },
+
+        "signatures": {
+            "description": "签字栏检测规则",
+            "mandatory": {
+                "description": "必须同时存在的签字项（全部命中才通过）",
+                "总经理签字": ["总经理签字"],
+                "部长签字":   ["部长签字", "部长、分管副总签字", "分管副总签字"],
+                "财务审核":   ["财务审核"]
+            },
+            "optional": {
+                "description": "可选的签字项（有则签，无不影响通过）",
+                "业务审核": ["业务审核"]
+            }
+        }
+
     }
-  },
-  "_note": "列位置根据实际工资表格式调整"
 }
