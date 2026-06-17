@@ -24,7 +24,7 @@ if not code:
 
 if st.button("← 返回列表", key="back"):
     st.session_state.detail_code = None
-    st.switch_page("app/app.py")
+    st.switch_page("app.py")
 
 detail = st.session_state.instance_details_cache.get(code)
 
@@ -66,7 +66,7 @@ with tab1:
                 "类型": w.get("type", ""),
                 "值": str(w.get("value", "")) if w.get("value") else "",
             })
-        st.dataframe(form_data, use_container_width=True, hide_index=True)
+        st.dataframe(form_data, width="stretch", hide_index=True)
     else:
         st.info("无文本表单字段")
 
@@ -81,7 +81,7 @@ with tab2:
                 "角色": a.get("role") or "—",
                 "状态": a_status,
             })
-        st.dataframe(approver_data, use_container_width=True, hide_index=True)
+        st.dataframe(approver_data, width="stretch", hide_index=True)
     else:
         st.info("无审批人信息")
 

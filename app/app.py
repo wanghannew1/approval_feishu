@@ -163,7 +163,7 @@ def render_sidebar():
                 if st.button(
                     name,
                     key=f"def_{code}",
-                    use_container_width=True,
+                    width="stretch",
                     type="primary" if selected else "secondary",
                 ):
                     st.session_state.selected_definition = code
@@ -187,7 +187,7 @@ def render_sidebar():
 
         with st.expander("➕ 新增审批模板"):
             new_code = st.text_input("definitionCode", key="new_code")
-            fetch_clicked = st.button("🔍 获取模板名称", key="fetch_name", use_container_width=True)
+            fetch_clicked = st.button("🔍 获取模板名称", key="fetch_name", width="stretch")
 
             if fetch_clicked and new_code.strip():
                 app_id, app_secret = _get_credentials()
@@ -205,7 +205,7 @@ def render_sidebar():
 
             fetched_name = st.session_state.get("new_fetched_name", "")
             new_name = st.text_input("模板名称", value=fetched_name, key="new_name")
-            if st.button("添加", key="add_def", use_container_width=True):
+            if st.button("添加", key="add_def", width="stretch"):
                 code = new_code.strip()
                 name = new_name.strip()
                 if code and name and code not in definitions:
@@ -233,7 +233,7 @@ def render_sidebar():
                 type="password",
                 key="settings_app_secret",
             )
-            if st.button("保存设置", key="save_settings", use_container_width=True):
+            if st.button("保存设置", key="save_settings", width="stretch"):
                 settings["app_id"] = app_id_val.strip()
                 settings["app_secret"] = app_secret_val.strip()
                 _save_settings(settings)
@@ -276,7 +276,7 @@ def render_query_panel(approval_code):
             key="end_date",
         )
 
-    if st.button("🔍 查询", use_container_width=True, type="primary"):
+    if st.button("🔍 查询", width="stretch", type="primary"):
         app_id, app_secret = _get_credentials()
 
         if not app_id or not app_secret:
@@ -431,11 +431,11 @@ def render_batch_actions():
     col_download, col_print = st.columns(2)
 
     with col_download:
-        if st.button("📥 下载附件", use_container_width=True):
+        if st.button("📥 下载附件", width="stretch"):
             _handle_download()
 
     with col_print:
-        if st.button("✍️ 签名并打印", use_container_width=True):
+        if st.button("✍️ 签名并打印", width="stretch"):
             _handle_sign_and_print()
 
 
