@@ -98,15 +98,6 @@ with col_meta:
 
 st.divider()
 
-# ── tab navigation (radio simulating tabs, both sections always visible) ──
-tab_select = st.radio(
-    "导航",
-    ["审批详情", "审批记录"],
-    horizontal=True,
-    label_visibility="collapsed",
-    key="detail_tabs",
-)
-
 # ── 审批详情 ──
 st.subheader("审批详情")
 for w in form_widgets:
