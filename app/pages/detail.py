@@ -70,6 +70,26 @@ def _waiting_time(ts_str):
         return ""
 
 
+ROLE_MAPPING_PATH = _PROJECT_ROOT / "role_mapping.json"
+WORKFLOW_NODES = ["提交", "业务审核", "部门负责人", "财务", "总经理", "出纳办理", "结束"]
+
+
+def _load_workflow_order():
+    try:
+        with open(ROLE_MAPPING_PATH, "r", encoding="utf-8") as f:
+            role_mapping = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        role_mapping = {}
+    nodes = [k for k in role_mapping if not k.startswith("_")]
+    order = {}
+    for i, node in enumerate(nodes):
+        order[node] = i + 1
+    for i, node in enumerate(WORKFLOW_NODES):
+        if node not in order:
+            order[node] = len(order) + i
+    return order
+
+
 # ── page setup ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="审批详情", page_icon="📋", layout="wide")
 
@@ -200,6 +220,7 @@ st.divider()
 st.subheader("审批记录")
 
 records = []
+workflow_order = _load_workflow_order()
 
 for event in detail.get("timeline", []):
     if event.get("type") == "START":
@@ -209,18 +230,21 @@ for event in detail.get("timeline", []):
             "审批结果": "已提交",
             "审批意见": "",
             "审批时间": _fmt(str(event.get("create_time", ""))),
+            "_order": workflow_order.get("提交", 0),
         })
 
 for task in detail.get("task_list", []):
     t_status = task.get("status", "")
+    node = task.get("node_name", "")
     result = "审批中" if t_status == "PENDING" else STATUS_LABEL.get(t_status, t_status)
     task_time = _waiting_time(str(task.get("start_time", ""))) if t_status == "PENDING" else _fmt(str(task.get("start_time", "")))
     records.append({
-        "节点名称": task.get("node_name", ""),
+        "节点名称": node,
         "审批人": _resolve_name(task.get("user_id", ""), user_mapping) or task.get("user_id", ""),
         "审批结果": result,
         "审批意见": "",
         "审批时间": task_time,
+        "_order": workflow_order.get(node, 99),
     })
 
 for a in detail.get("approver_list", []):
@@ -230,6 +254,7 @@ for a in detail.get("approver_list", []):
         "审批结果": STATUS_LABEL.get(a.get("status", ""), a.get("status", "")),
         "审批意见": a.get("comment", ""),
         "审批时间": _fmt(str(a.get("approval_time", ""))),
+        "_order": 999,
     })
 
 end_time_raw = detail.get("end_time", "")
@@ -240,6 +265,7 @@ if end_time_raw and end_time_raw != "0":
         "审批结果": STATUS_LABEL.get(raw_status, raw_status),
         "审批意见": "",
         "审批时间": _fmt(str(end_time_raw)),
+        "_order": workflow_order.get("结束", 999),
     })
 else:
     records.append({
@@ -248,7 +274,10 @@ else:
         "审批结果": "未结束",
         "审批意见": "",
         "审批时间": "",
+        "_order": workflow_order.get("结束", 999),
     })
+
+records.sort(key=lambda r: r.pop("_order", 999))
 
 if records:
     st.dataframe(
