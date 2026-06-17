@@ -319,7 +319,7 @@ def render_query_panel(approval_code):
     with col_start:
         start_date = st.date_input(
             "开始日期",
-            value=datetime.now() - timedelta(days=30),
+            value=datetime.now() - timedelta(days=1),
             key="start_date",
         )
 
