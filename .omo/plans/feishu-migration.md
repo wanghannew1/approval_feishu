@@ -1126,7 +1126,7 @@ print(f'Roles: {roles}')
   - Files: `batch_processor.py, test/test_approval_status.py`
   - Pre-commit: `python -m pytest test/test_approval_status.py -v`
 
-- [ ] 11. batch_processor.py签名插入逻辑适配
+- [x] 11. batch_processor.py签名插入逻辑适配
 
   **What to do**:
   - 适配 PaySignPrinter/batch_processor.py 中的签名插入和打印逻辑
