@@ -1,0 +1,22 @@
+{
+  "_comment": "工资表Sheet检测规则配置",
+  "_description": "用于从Excel文件中定位工资表所在位置",
+  "detection_rules": {
+    "sheet_name_patterns": [
+      "工资",
+      "薪资",
+      " payroll",
+      " Payroll",
+      "payroll"
+    ],
+    "header_row": 1,
+    "name_column": "A",
+    "signature_columns": {
+      "部长签字": "H",
+      "总经理签字": "I",
+      "财务审核": "J",
+      "业务审核": "K"
+    }
+  },
+  "_note": "列位置根据实际工资表格式调整"
+}

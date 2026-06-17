@@ -13,3 +13,7 @@ downloads/
 # Python
 __pycache__/
 *.pyc
+
+# .omo runtime state (plans/evidence/notepads are tracked)
+.omo/boulder.json
+.omo/run-continuation/

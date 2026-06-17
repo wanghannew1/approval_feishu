@@ -1,0 +1,9 @@
+{
+  "_comment": "飞书审批节点名称 -> Excel签名位置关键词 映射表",
+  "_note": "actual node names must be confirmed from the Feishu approval definition",
+  "_note_zh": "实际节点名称需从飞书审批流程定义中确认，以下为占位符映射",
+  "部门负责人": "部长签字",
+  "总经理": "总经理签字",
+  "财务": "财务审核",
+  "业务审核": "业务审核"
+}

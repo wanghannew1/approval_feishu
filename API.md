@@ -165,8 +165,12 @@ Authorization: Bearer <tenant_access_token>
 | `status` | string | `PENDING` 审批中 / `APPROVED` 已通过 / `REJECTED` 已拒绝 / `CANCELED` 已撤销 |
 | `form` | string | 表单数据的 JSON 字符串，需手动 `json.loads()` |
 | `form[].type` | string | 控件类型，文件附件为 `attachmentV2` |
-| `form[].value` | string[] | 附件控件值为 `file_token` 数组 |
+| `form[].value` | string[] | 附件控件值为**完整临时下载 URL**（12小时有效），如 `https://internal-api-drive-stream.feishu.cn/...` |
 | `approver_list[].approver_name` | string | 审批人姓名 |
+| `approver_list[].status` | string | 审批状态（APPROVED/REJECTED/PENDING） |
+| `approver_list[].comment` | string | 审批意见 |
+
+> ⚠️ `approver_list` **不包含 user_id/open_id**，只有 `approver_name`、`status`、`comment`。签名映射需使用姓名作为键。
 
 **解析 form 中的附件**：
 ```python
@@ -174,10 +178,10 @@ form_data = json.loads(data["data"]["form"])
 attachments = []
 for widget in form_data:
     if widget["type"] == "attachmentV2":
-        for file_token in widget["value"]:
+        for url in widget["value"]:
             attachments.append({
                 "field_name": widget.get("name", "附件"),
-                "file_token": file_token
+                "download_url": url  # 完整临时 URL，12小时有效
             })
 ```
 
@@ -187,7 +191,34 @@ for widget in form_data:
 
 ## API 4: 下载文件
 
-**用途**：通过 `file_token` 下载审批附件。
+**用途**：下载审批附件。`attachmentV2` 控件的 `value` 是完整临时下载 URL（12小时有效），可直接请求。
+
+### 方式一：直接使用临时 URL（推荐）
+
+**请求**：
+```
+GET <attachmentV2 中的临时 URL>
+Authorization: Bearer <tenant_access_token>
+```
+
+**说明**：
+- URL 格式如 `https://internal-api-drive-stream.feishu.cn/space/api/box/stream/download/authcode/?code=...`
+- 有效期 12 小时
+- 必须携带 Authorization header
+
+**下载代码**：
+```python
+download_url = widget["value"][0]  # 直接是完整 URL
+resp = requests.get(download_url, headers=headers, stream=True)
+resp.raise_for_status()
+content_disp = resp.headers.get("Content-Disposition", "")
+file_name = extract_filename(content_disp) or "attachment.xlsx"
+with open(file_name, "wb") as f:
+    for chunk in resp.iter_content(chunk_size=8192):
+        f.write(chunk)
+```
+
+### 方式二：通过 Drive API
 
 **请求**：
 ```
@@ -199,24 +230,12 @@ Authorization: Bearer <tenant_access_token>
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `file_token` | string | ✅ | 文件 token（从 API 3 的 form 中提取） |
+| `file_token` | string | ✅ | 文件 token（从旧版 form 中提取） |
 
 **响应**：
 - 成功：返回文件的二进制流（`Content-Type` 根据文件类型变化）
 - 响应头可能包含 `Content-Disposition` 指示文件名
 - 可用 `Range` 请求头支持断点续传
-
-**下载代码**：
-```python
-resp = requests.get(url, headers=headers, stream=True)
-resp.raise_for_status()
-# 尝试从 Content-Disposition 获取文件名
-content_disp = resp.headers.get("Content-Disposition", "")
-file_name = extract_filename(content_disp) or f"{file_token}.xlsx"
-with open(file_name, "wb") as f:
-    for chunk in resp.iter_content(chunk_size=8192):
-        f.write(chunk)
-```
 
 **权限要求**：`drive:drive` 或 `drive:file:download`
 
@@ -315,7 +334,8 @@ Content-Type: application/json; charset=utf-8
 1. **Token 有效期**: 7200 秒（2 小时），过期前建议提前刷新
 2. **Token 并发安全**: 获取新 token 时旧 token 会立即失效，建议缓存 + 加锁
 3. **分页**: API 2 仅返回 `instance_code`，无标题/状态摘要，翻页需用 `page_token`
-4. **文件下载**: 审批附件可通过 `attachmentV2` 控件的 `value` 获取下载链接（临时 URL）或 file_token，需兼容两种格式
-5. **API 5 权限**: `/instances/query` 需要 `approval:approval.list:readonly` 权限
+4. **文件下载**: `attachmentV2` 控件的 `value` 是完整临时下载 URL（12小时有效），可直接 GET 请求下载，无需调用 Drive API
+5. **API 5 权限**: `/instances/query` 需要 `approval:approval.list:readonly` 权限，无此权限返回 99991672
 6. **时间范围**: API 2 的时间范围无 120 天限制（与钉钉不同），但建议控制分页量
 7. **审批状态值**: `PENDING` 审批中, `APPROVED` 已通过, `REJECTED` 已拒绝, `CANCELED` 已撤销
+8. **approver_list 字段**: 仅包含 `approver_name`、`status`、`comment`，**不包含 user_id/open_id**，签名映射需使用姓名作为键

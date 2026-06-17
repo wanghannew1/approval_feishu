@@ -229,7 +229,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
 
 ## TODOs
 
-- [ ] 1. 验证飞书API实际行为（关键假设验证）
+- [x] 1. 验证飞书API实际行为（关键假设验证）
 
   **What to do**:
   - 运行现有 test_api.py，捕获实际API响应并完整记录
@@ -333,7 +333,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
   - Files: `feishu_api_verification.md, .omo/evidence/task-1-*`
   - Pre-commit: 无
 
-- [ ] 2. 项目脚手架 + pytest配置
+- [x] 2. 项目脚手架 + pytest配置
 
   **What to do**:
   - **[CRITICAL] 确认飞书项目为独立Git仓库** — 不得修改或推送PaySignPrinter钉钉项目的任何内容
@@ -433,7 +433,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
   - Files: `test/conftest.py, test/__init__.py, requirements.txt, pytest.ini`
   - Pre-commit: `python -m pytest --collect-only`
 
-- [ ] 3. 修正API.md文档
+- [x] 3. 修正API.md文档
 
   **What to do**:
   - 根据Task 1的验证结果修正API.md中的错误：
@@ -683,7 +683,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
   - Files: `feishu_api.py, test/test_feishu_api.py`
   - Pre-commit: `python -m pytest test/test_feishu_api.py -v`
 
-- [ ] 6. 角色映射配置 role_mapping.json + user_mapping.json
+- [x] 6. 角色映射配置 role_mapping.json + user_mapping.json
 
   **What to do**:
   - 根据Task 1验证的飞书审批定义，创建 role_mapping.json
