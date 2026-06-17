@@ -359,6 +359,10 @@ def render_query_panel(approval_code):
 
 
 def _current_handler(detail):
+    tasks = detail.get("task_list") or []
+    for t in tasks:
+        if t.get("status") == "PENDING":
+            return t.get("user_id") or t.get("open_id") or ""
     approvers = detail.get("approver_list") or []
     for a in approvers:
         if a.get("status") == "PENDING":
@@ -375,14 +379,15 @@ def render_instance_list():
 
     select_all = st.checkbox("全选", key="select_all")
 
-    hdr = st.columns([3, 2, 1, 1, 1, 1, 0.5])
+    hdr = st.columns([3, 2, 1, 1, 1, 1, 1, 0.5])
     hdr[0].markdown("**标题**")
     hdr[1].markdown("**审批单编号**")
     hdr[2].markdown("**状态**")
-    hdr[3].markdown("**提交时间**")
-    hdr[4].markdown("**完成时间**")
-    hdr[5].markdown("**当前处理人**")
-    hdr[6].markdown("**详情**")
+    hdr[3].markdown("**提交人**")
+    hdr[4].markdown("**提交时间**")
+    hdr[5].markdown("**完成时间**")
+    hdr[6].markdown("**当前处理人**")
+    hdr[7].markdown("**详情**")
     st.divider()
 
     selected = set()
@@ -397,6 +402,7 @@ def render_instance_list():
 
         submit_time = _format_datetime(str(detail.get("start_time", "")))
         end_time = _format_datetime(str(detail.get("end_time", ""))) if detail.get("end_time") else "—"
+        submitter = detail.get("user_id", "") or "—"
         handler = _current_handler(detail) or "—"
         form_widgets = parse_form(detail)
         form_title = ""
@@ -406,7 +412,7 @@ def render_instance_list():
                 break
         title = form_title or detail.get("approval_name", "无标题")
 
-        row = st.columns([3, 2, 1, 1, 1, 1, 0.5])
+        row = st.columns([3, 2, 1, 1, 1, 1, 1, 0.5])
         checked = row[0].checkbox(
             f"{idx + 1}. {title}",
             value=select_all or code in st.session_state.selected_instances,
@@ -417,10 +423,11 @@ def render_instance_list():
 
         row[1].markdown(f"`{serial}`")
         row[2].markdown(status_text)
-        row[3].markdown(submit_time)
-        row[4].markdown(end_time)
-        row[5].markdown(handler)
-        if row[6].button("📋", key=f"det_{code}", help="查看详情"):
+        row[3].markdown(f"`{submitter}`")
+        row[4].markdown(submit_time)
+        row[5].markdown(end_time)
+        row[6].markdown(handler)
+        if row[7].button("📋", key=f"det_{code}", help="查看详情"):
             st.session_state.detail_code = code
             st.switch_page("pages/detail.py")
 
