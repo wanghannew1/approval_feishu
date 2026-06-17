@@ -5,11 +5,11 @@
 > **Quick Summary**: 将钉钉PaySignPrinter审批打印系统完整迁移为飞书API版，新建feishu_api.py模块，复用签名插入/打印逻辑，修复附件下载404和搜索API缺参两个Bug，TDD方式开发。
 >
 > **Deliverables**:
-> - feishu_api.py — 飞书API封装（认证、列表、详情、附件下载、搜索）
-> - tests/test_feishu_api.py — API层TDD单元测试
+> - app/feishu_api.py — 飞书API封装（认证、列表、详情、附件下载、搜索）
+> - test/test_feishu_api.py — API层TDD单元测试
 > - 修正后的API.md文档
-> - 新建 role_mapping.json / user_mapping.json（飞书版）
-> - 适配后的 cache_manager.py / batch_processor.py / app.py
+> - 新建 app/role_mapping.json / app/user_mapping.json（飞书版）
+> - 适配后的 app/cache_manager.py / app/batch_processor.py / app/app.py
 > - 完整可运行的Streamlit审批打印应用
 
 > **Estimated Effort**: Large
@@ -99,15 +99,15 @@ for sn in sheets_to_remove:
 将钉钉PaySignPrinter审批打印系统完整迁移为飞书API版，修复现有API bug，实现TDD开发流程。
 
 ### Concrete Deliverables
-- `/home/ubuntu/coding/approval_feishu/approval_feishu/feishu_api.py` — 飞书API封装模块
-- `/home/ubuntu/coding/approval_feishu/approval_feishu/tests/test_feishu_api.py` — API测试
+- `/home/ubuntu/coding/approval_feishu/approval_feishu/app/feishu_api.py` — 飞书API封装模块
+- `/home/ubuntu/coding/approval_feishu/approval_feishu/test/test_feishu_api.py` — API测试
 - `/home/ubuntu/coding/approval_feishu/approval_feishu/API.md` — 修正后的API文档
 - `/home/ubuntu/coding/approval_feishu/approval_feishu/role_mapping.json` — 飞书审批角色映射
 - `/home/ubuntu/coding/approval_feishu/approval_feishu/user_mapping.json` — 飞书用户ID映射
 - 适配后的 cache_manager.py / batch_processor.py / app.py
 
 ### Definition of Done
-- [ ] `pytest tests/` 全部通过
+- [ ] `pytest test/` 全部通过
 - [ ] `streamlit run app.py` 正常启动，能查询飞书审批列表
 - [ ] 能下载附件并保存为本地文件
 - [ ] 能在Excel中正确插入签名图片
@@ -365,7 +365,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
     ├── requirements.txt          # (需更新)
     └── pyproject.toml            # (已存在)
   - 更新 requirements.txt 添加: pytest, requests-mock
-  - 创建 tests/conftest.py 配置共享 fixtures (mock token, mock API响应)
+  - 创建 test/conftest.py 配置共享 fixtures (mock token, mock API响应)
   - 创建 pytest.ini 或 pyproject.toml 配置 pytest
   - 验证: `pytest --collect-only` 能发现测试文件
 
@@ -430,7 +430,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
 
   **Commit**: YES (groups with Wave 1)
   - Message: `build(feishu): add project scaffolding and pytest config`
-  - Files: `tests/conftest.py, tests/__init__.py, requirements.txt, pytest.ini`
+  - Files: `test/conftest.py, test/__init__.py, requirements.txt, pytest.ini`
   - Pre-commit: `python -m pytest --collect-only`
 
 - [ ] 3. 修正API.md文档
@@ -551,8 +551,8 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
   **Acceptance Criteria**:
 
   **If TDD:**
-  - [ ] Test file created: tests/test_feishu_api.py
-  - [ ] `python -m pytest tests/test_feishu_api.py::test_get_tenant_token -v` → PASS
+  - [ ] Test file created: test/test_feishu_api.py
+  - [ ] `python -m pytest test/test_feishu_api.py::test_get_tenant_token -v` → PASS
 
   **QA Scenarios (MANDATORY):**
 
@@ -561,7 +561,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
     Tool: Bash (python)
     Preconditions: .env中有正确的飞书凭证, pytest已配置
     Steps:
-      1. python -m pytest tests/test_feishu_api.py::test_get_tenant_token -v
+      1. python -m pytest test/test_feishu_api.py::test_get_tenant_token -v
       2. 检查: 成功测试、缓存测试、过期测试、失败测试全部通过
     Expected Result: 4个测试全部PASS
     Failure Indicators: 任何测试FAIL
@@ -581,8 +581,8 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
 
   **Commit**: YES (groups with Wave 1)
   - Message: `feat(feishu): add tenant access token auth with caching`
-  - Files: `feishu_api.py, tests/test_feishu_api.py`
-  - Pre-commit: `python -m pytest tests/test_feishu_api.py -v`
+  - Files: `feishu_api.py, test/test_feishu_api.py`
+  - Pre-commit: `python -m pytest test/test_feishu_api.py -v`
 
 - [ ] 5. 飞书审批列表查询（搜索API + 列表API）
 
@@ -641,8 +641,8 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
   **Acceptance Criteria**:
 
   **If TDD:**
-  - [ ] `python -m pytest tests/test_feishu_api.py::test_search_instances -v` → PASS
-  - [ ] `python -m pytest tests/test_feishu_api.py::test_list_instances -v` → PASS
+  - [ ] `python -m pytest test/test_feishu_api.py::test_search_instances -v` → PASS
+  - [ ] `python -m pytest test/test_feishu_api.py::test_list_instances -v` → PASS
 
   **QA Scenarios (MANDATORY):**
 
@@ -651,7 +651,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
     Tool: Bash (python)
     Preconditions: feishu_api.py已实现search_instances, mock已配置
     Steps:
-      1. python -m pytest tests/test_feishu_api.py::test_search_instances -v
+      1. python -m pytest test/test_feishu_api.py::test_search_instances -v
       2. 验证: 成功查询、必填参数校验、空结果、错误处理、网络错误 全部PASS
     Expected Result: 5个测试全部PASS
     Failure Indicators: 任何测试FAIL
@@ -661,7 +661,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
     Tool: Bash (python)
     Preconditions: feishu_api.py已实现list_instances
     Steps:
-      1. python -m pytest tests/test_feishu_api.py::test_list_instances -v
+      1. python -m pytest test/test_feishu_api.py::test_list_instances -v
       2. 验证: 分页逻辑正确处理has_more和page_token
     Expected Result: 分页测试PASS
     Failure Indicators: 分页不完整或重复
@@ -680,8 +680,8 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
 
   **Commit**: YES (groups with Wave 1)
   - Message: `feat(feishu): add approval instance search and list query`
-  - Files: `feishu_api.py, tests/test_feishu_api.py`
-  - Pre-commit: `python -m pytest tests/test_feishu_api.py -v`
+  - Files: `feishu_api.py, test/test_feishu_api.py`
+  - Pre-commit: `python -m pytest test/test_feishu_api.py -v`
 
 - [ ] 6. 角色映射配置 role_mapping.json + user_mapping.json
 
@@ -802,7 +802,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
   **Acceptance Criteria**:
 
   **If TDD:**
-  - [ ] `python -m pytest tests/test_cache_manager.py -v` → PASS
+  - [ ] `python -m pytest test/test_cache_manager.py -v` → PASS
 
   **QA Scenarios (MANDATORY):**
 
@@ -811,7 +811,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
     Tool: Bash (python)
     Preconditions: cache_manager.py已实现
     Steps:
-      1. python -m pytest tests/test_cache_manager.py -v
+      1. python -m pytest test/test_cache_manager.py -v
       2. 验证: 命中测试、未命中测试、过期测试、force_refresh测试 全部PASS
     Expected Result: 4+个测试全部PASS
     Failure Indicators: 任何测试FAIL
@@ -835,8 +835,8 @@ print('Cache hit: OK')
 
   **Commit**: YES (groups with Wave 1)
   - Message: `feat(feishu): adapt cache manager for Feishu API`
-  - Files: `cache_manager.py, tests/test_cache_manager.py`
-  - Pre-commit: `python -m pytest tests/test_cache_manager.py -v`
+  - Files: `cache_manager.py, test/test_cache_manager.py`
+  - Pre-commit: `python -m pytest test/test_cache_manager.py -v`
 
 - [ ] 8. 飞书审批实例详情 + 表单解析 + 附件提取
 
@@ -892,8 +892,8 @@ print('Cache hit: OK')
   **Acceptance Criteria**:
 
   **If TDD:**
-  - [ ] `python -m pytest tests/test_feishu_api.py::test_get_instance_detail -v` → PASS
-  - [ ] `python -m pytest tests/test_feishu_api.py::test_extract_attachments -v` → PASS
+  - [ ] `python -m pytest test/test_feishu_api.py::test_get_instance_detail -v` → PASS
+  - [ ] `python -m pytest test/test_feishu_api.py::test_extract_attachments -v` → PASS
 
   **QA Scenarios (MANDATORY):**
 
@@ -902,7 +902,7 @@ print('Cache hit: OK')
     Tool: Bash (python)
     Preconditions: feishu_api.py已实现
     Steps:
-      1. python -m pytest tests/test_feishu_api.py::test_get_instance_detail -v
+      1. python -m pytest test/test_feishu_api.py::test_get_instance_detail -v
       2. 验证: 成功获取、表单解析、空form、无效JSON、API错误、网络错误 全部PASS
     Expected Result: 6个测试全部PASS
     Failure Indicators: 任何测试FAIL
@@ -912,7 +912,7 @@ print('Cache hit: OK')
     Tool: Bash (python)
     Preconditions: feishu_api.py已实现extract_attachments
     Steps:
-      1. python -m pytest tests/test_feishu_api.py::test_extract_attachments -v
+      1. python -m pytest test/test_feishu_api.py::test_extract_attachments -v
       2. 验证: file_token格式、URL格式、多附件、无附件、非attachment组件 全部PASS
     Expected Result: 5+个测试全部PASS
     Failure Indicators: URL格式的附件提取失败（Bug 1未修复）
@@ -931,8 +931,8 @@ print('Cache hit: OK')
 
   **Commit**: YES (groups with Wave 2)
   - Message: `feat(feishu): add instance detail, form parsing, and attachment extraction`
-  - Files: `feishu_api.py, tests/test_feishu_api.py`
-  - Pre-commit: `python -m pytest tests/test_feishu_api.py -v`
+  - Files: `feishu_api.py, test/test_feishu_api.py`
+  - Pre-commit: `python -m pytest test/test_feishu_api.py -v`
 
 - [ ] 9. 飞书附件下载（修复Bug 1）
 
@@ -987,7 +987,7 @@ print('Cache hit: OK')
   **Acceptance Criteria**:
 
   **If TDD:**
-  - [ ] `python -m pytest tests/test_feishu_api.py::test_download_attachment -v` → PASS
+  - [ ] `python -m pytest test/test_feishu_api.py::test_download_attachment -v` → PASS
 
   **QA Scenarios (MANDATORY):**
 
@@ -996,7 +996,7 @@ print('Cache hit: OK')
     Tool: Bash (python)
     Preconditions: feishu_api.py已实现download_attachment
     Steps:
-      1. python -m pytest tests/test_feishu_api.py::test_download_attachment -v
+      1. python -m pytest test/test_feishu_api.py::test_download_attachment -v
       2. 验证: file_token下载、URL直接下载、文件名提取、大文件stream、错误处理 全部PASS
     Expected Result: 5+个测试全部PASS
     Failure Indicators: 任何测试FAIL
@@ -1024,8 +1024,8 @@ if a:
 
   **Commit**: YES (groups with Wave 2)
   - Message: `feat(feishu): add attachment download with Bug 1 fix`
-  - Files: `feishu_api.py, tests/test_feishu_api.py`
-  - Pre-commit: `python -m pytest tests/test_feishu_api.py -v`
+  - Files: `feishu_api.py, test/test_feishu_api.py`
+  - Pre-commit: `python -m pytest test/test_feishu_api.py -v`
 
 - [ ] 10. 审批状态判断重写（适配飞书approver_list）
 
@@ -1090,7 +1090,7 @@ if a:
   **Acceptance Criteria**:
 
   **If TDD:**
-  - [ ] `python -m pytest tests/test_approval_status.py -v` → PASS
+  - [ ] `python -m pytest test/test_approval_status.py -v` → PASS
 
   **QA Scenarios (MANDATORY):**
 
@@ -1099,7 +1099,7 @@ if a:
     Tool: Bash (python)
     Preconditions: 审批状态函数已实现
     Steps:
-      1. python -m pytest tests/test_approval_status.py -v
+      1. python -m pytest test/test_approval_status.py -v
       2. 验证: APPROVED通过、PENDING待审、REJECTED拒绝、RECALL撤回、DELETED删除 全部PASS
     Expected Result: 5+个状态测试PASS
     Failure Indicators: 状态判断逻辑错误
@@ -1123,8 +1123,8 @@ print(f'Roles: {roles}')
 
   **Commit**: YES (groups with Wave 2)
   - Message: `feat(feishu): rewrite approval status logic for Feishu approver_list`
-  - Files: `batch_processor.py, tests/test_approval_status.py`
-  - Pre-commit: `python -m pytest tests/test_approval_status.py -v`
+  - Files: `batch_processor.py, test/test_approval_status.py`
+  - Pre-commit: `python -m pytest test/test_approval_status.py -v`
 
 - [ ] 11. batch_processor.py签名插入逻辑适配
 
@@ -1485,7 +1485,7 @@ print('OK: uses Feishu API')
   **Acceptance Criteria**:
 
   **If TDD:**
-  - [ ] `python -m pytest tests/test_integration.py -v` → PASS
+  - [ ] `python -m pytest test/test_integration.py -v` → PASS
 
   **QA Scenarios (MANDATORY):**
 
@@ -1494,7 +1494,7 @@ print('OK: uses Feishu API')
     Tool: Bash (python)
     Preconditions: 所有模块已实现
     Steps:
-      1. python -m pytest tests/test_integration.py -v
+      1. python -m pytest test/test_integration.py -v
       2. 验证: token获取→列表查询→详情→附件→下载→签名→打印 全链路PASS
     Expected Result: 所有集成测试PASS
     Failure Indicators: 任何链路断开
@@ -1504,7 +1504,7 @@ print('OK: uses Feishu API')
     Tool: Bash (python)
     Preconditions: 集成测试已编写
     Steps:
-      1. python -m pytest tests/test_integration.py -k "edge" -v
+      1. python -m pytest test/test_integration.py -k "edge" -v
       2. 验证: 无实例、多附件、非Excel、token过期、缓存等边界情况PASS
     Expected Result: 边界测试全部PASS
     Failure Indicators: 任何边界情况未正确处理
@@ -1513,8 +1513,8 @@ print('OK: uses Feishu API')
 
   **Commit**: YES (groups with Wave 3)
   - Message: `test(feishu): add end-to-end integration tests`
-  - Files: `tests/test_integration.py`
-  - Pre-commit: `python -m pytest tests/test_integration.py -v`
+  - Files: `test/test_integration.py`
+  - Pre-commit: `python -m pytest test/test_integration.py -v`
 
 ---
 
@@ -1543,7 +1543,7 @@ print('OK: uses Feishu API')
 ## Commit Strategy
 
 - **Wave 0**: `feat(feishu): verify API behavior and document actual responses` - feishu_api_verification.md
-- **Wave 1**: `feat(feishu): add project scaffolding, auth, list query, config, cache` - feishu_api.py, tests/, config files, API.md
+- **Wave 1**: `feat(feishu): add project scaffolding, auth, list query, config, cache` - feishu_api.py, test/, config files, API.md
 - **Wave 2**: `feat(feishu): add detail parsing, download, approval status, signatures, printing` - batch updates
 - **Wave 3**: `feat(feishu): add Streamlit UI and integration tests` - app.py, e2e tests
 
@@ -1554,7 +1554,7 @@ print('OK: uses Feishu API')
 ### Verification Commands
 ```bash
 cd /home/ubuntu/coding/approval_feishu/approval_feishu
-python -m pytest tests/ -v              # Expected: All tests pass
+python -m pytest test/ -v              # Expected: All tests pass
 python -c "from feishu_api import get_tenant_token; print(get_tenant_token()[:10])"  # Expected: t-xxx...
 streamlit run app.py --server.headless true --server.port 8501  # Expected: App starts
 ```
