@@ -7,7 +7,6 @@ inserting signatures, and printing payroll sheets.
 
 import os
 import sys
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -23,7 +22,6 @@ from app.batch_processor import (
     is_ready_for_print,
     process_single_approval,
 )
-from app.cache_manager import DownloadURLCache, InstanceDetailCache
 from app.feishu_api import (
     download_file,
     extract_attachments,
@@ -36,6 +34,13 @@ from app.feishu_api import (
 load_dotenv()
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+APPROVAL_DEFINITIONS = {
+    "1CF34ABB-781C-40B0-9A4F-3CC416612423": "项目人员工资发放审批单（系统工资单）",
+}
+
+# ---------------------------------------------------------------------------
 # Page config
 # ---------------------------------------------------------------------------
 st.set_page_config(
@@ -45,7 +50,7 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# Session state initialisation
+# Session state
 # ---------------------------------------------------------------------------
 if "token" not in st.session_state:
     st.session_state.token = None
@@ -55,16 +60,10 @@ if "selected_instances" not in st.session_state:
     st.session_state.selected_instances = set()
 if "instance_details_cache" not in st.session_state:
     st.session_state.instance_details_cache = {}
+if "selected_definition" not in st.session_state:
+    # Default to the payroll sheet approval
+    st.session_state.selected_definition = "1CF34ABB-781C-40B0-9A4F-3CC416612423"
 
-# Cache managers (persisted across reruns via session_state)
-if "url_cache" not in st.session_state:
-    st.session_state.url_cache = DownloadURLCache()
-if "detail_cache" not in st.session_state:
-    st.session_state.detail_cache = InstanceDetailCache()
-
-# ---------------------------------------------------------------------------
-# Status mapping
-# ---------------------------------------------------------------------------
 STATUS_LABELS = {
     "全部": None,
     "审批完成待出纳办理": "READY_FOR_PRINT",
@@ -107,66 +106,26 @@ def _format_datetime(ts_str: str) -> str:
         return ts_str
 
 
-def render_sidebar() -> dict:
-    """Render sidebar: credentials, cache stats, clear cache button."""
+def render_sidebar():
     with st.sidebar:
-        st.header("⚙️ 设置")
+        st.header("审批单分类")
 
-        app_id = st.text_input(
-            "App ID",
-            value=os.getenv("FEISHU_APP_ID", ""),
-            key="app_id",
-            type="password",
-        )
-        app_secret = st.text_input(
-            "App Secret",
-            value=os.getenv("FEISHU_APP_SECRET", ""),
-            key="app_secret",
-            type="password",
-        )
-        approval_code = st.text_input(
-            "审批定义 Code",
-            value=os.getenv("FEISHU_APPROVAL_CODE", ""),
-            key="approval_code",
-        )
+        for code, name in APPROVAL_DEFINITIONS.items():
+            selected = st.session_state.selected_definition == code
+            label = f"📄 {name}"
+            if st.button(
+                label,
+                key=f"def_{code}",
+                use_container_width=True,
+                type="primary" if selected else "secondary",
+            ):
+                st.session_state.selected_definition = code
+                st.rerun()
 
-        st.divider()
-
-        # --- Cache stats ---
-        st.subheader("📦 缓存管理")
-
-        url_cache: DownloadURLCache = st.session_state.url_cache
-        detail_cache: InstanceDetailCache = st.session_state.detail_cache
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("URL 缓存命中", url_cache.hits)
-        with col2:
-            st.metric("详情缓存命中", detail_cache.hits)
-
-        col3, col4 = st.columns(2)
-        with col3:
-            st.metric("URL 缓存未命中", url_cache.misses)
-        with col4:
-            st.metric("详情缓存未命中", detail_cache.misses)
-
-        if st.button("🗑️ 清除所有缓存", use_container_width=True):
-            url_cache.clear()
-            detail_cache.clear()
-            st.session_state.token = None
-            st.session_state.instance_details_cache = {}
-            st.success("缓存已清除")
-            st.rerun()
-
-    return {
-        "app_id": app_id,
-        "app_secret": app_secret,
-        "approval_code": approval_code,
-    }
+    return st.session_state.selected_definition
 
 
-def render_query_panel(config: dict) -> None:
-    """Render the query panel: status dropdown, date range, query button, results."""
+def render_query_panel(approval_code):
     st.header("📋 查询审批实例")
 
     col_status, col_start, col_end = st.columns([2, 2, 2])
@@ -194,9 +153,8 @@ def render_query_panel(config: dict) -> None:
         )
 
     if st.button("🔍 查询", use_container_width=True, type="primary"):
-        app_id = config["app_id"]
-        app_secret = config["app_secret"]
-        approval_code = config["approval_code"]
+        app_id = os.getenv("FEISHU_APP_ID", "")
+        app_secret = os.getenv("FEISHU_APP_SECRET", "")
 
         if not app_id or not app_secret:
             st.error("请填写 App ID 和 App Secret")
@@ -355,8 +313,7 @@ def render_instance_list() -> None:
     st.session_state.selected_instances = selected
 
 
-def render_batch_actions(config: dict) -> None:
-    """Render batch action buttons: download attachments, sign and print."""
+def render_batch_actions():
     selected = st.session_state.selected_instances
     if not selected:
         return
@@ -368,16 +325,15 @@ def render_batch_actions(config: dict) -> None:
 
     with col_download:
         if st.button("📥 下载附件", use_container_width=True):
-            _handle_download(config)
+            _handle_download()
 
     with col_print:
         if st.button("✍️ 签名并打印", use_container_width=True):
-            _handle_sign_and_print(config)
+            _handle_sign_and_print()
 
 
-def _handle_download(config: dict) -> None:
-    """Download attachments for all selected instances."""
-    token = _get_token(config["app_id"], config["app_secret"])
+def _handle_download():
+    token = _get_token(os.getenv("FEISHU_APP_ID", ""), os.getenv("FEISHU_APP_SECRET", ""))
     if not token:
         return
 
@@ -431,9 +387,8 @@ def _handle_download(config: dict) -> None:
     st.success(f"下载完成，共下载 {downloaded_count} 个文件")
 
 
-def _handle_sign_and_print(config: dict) -> None:
-    """Insert signatures and print for all selected instances."""
-    token = _get_token(config["app_id"], config["app_secret"])
+def _handle_sign_and_print():
+    token = _get_token(os.getenv("FEISHU_APP_ID", ""), os.getenv("FEISHU_APP_SECRET", ""))
     if not token:
         return
 
@@ -551,11 +506,10 @@ def render_instance_detail() -> None:
 
 
 def main():
-    """Main Streamlit application entry."""
-    config = render_sidebar()
-    render_query_panel(config)
+    approval_code = render_sidebar()
+    render_query_panel(approval_code)
     render_instance_list()
-    render_batch_actions(config)
+    render_batch_actions()
     render_instance_detail()
 
 
