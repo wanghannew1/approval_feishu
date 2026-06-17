@@ -5,11 +5,14 @@ Provides a web UI for querying and downloading approval attachments,
 inserting signatures, and printing payroll sheets.
 """
 
+import io
 import json
 import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+
+import openpyxl
 
 _PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
@@ -40,6 +43,7 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 DEFINITIONS_FILE = Path(__file__).parent / "approval_definitions.json"
 SETTINGS_FILE = Path(__file__).parent / "settings.json"
+USER_MAPPING_FILE = Path(__file__).parent / "user_mapping.json"
 
 _DEFAULT_DEFINITIONS = {
     "1CF34ABB-781C-40B0-9A4F-3CC416612423": "项目人员工资发放审批单（系统工资单）",
@@ -70,6 +74,39 @@ def _load_settings():
 def _save_settings(data):
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _load_user_mapping():
+    try:
+        with open(USER_MAPPING_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_user_mapping(data):
+    with open(USER_MAPPING_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _resolve_user_name(user_id, mapping=None):
+    if not user_id:
+        return "—"
+    if mapping is None:
+        mapping = _load_user_mapping()
+    return mapping.get(user_id, user_id)
+
+
+def _import_users_from_excel(file_bytes):
+    wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
+    ws = wb.active
+    result = {}
+    for row in ws.iter_rows(min_row=3, values_only=True):
+        uid = (row[0] or "").strip()
+        name = (row[2] or "").strip()
+        if uid and name:
+            result[uid] = name
+    return result
 
 
 def _get_credentials():
@@ -240,6 +277,23 @@ def render_sidebar():
                 st.session_state.token = None
                 st.success("已保存")
 
+        with st.expander("📇 通讯录导入"):
+            user_mapping = _load_user_mapping()
+            st.caption(f"已导入 {len(user_mapping)} 人")
+            uploaded = st.file_uploader(
+                "上传通讯录 Excel",
+                type=["xlsx"],
+                key="user_mapping_upload",
+            )
+            if uploaded is not None:
+                try:
+                    new_mapping = _import_users_from_excel(uploaded.read())
+                    user_mapping.update(new_mapping)
+                    _save_user_mapping(user_mapping)
+                    st.success(f"已导入 {len(new_mapping)} 人，共 {len(user_mapping)} 人")
+                except Exception as e:
+                    st.error(f"导入失败: {e}")
+
     if st.session_state.selected_definition not in definitions and definitions:
         st.session_state.selected_definition = next(iter(definitions))
 
@@ -401,9 +455,13 @@ def render_instance_list():
             status_text = "审批完成待出纳办理"
 
         submit_time = _format_datetime(str(detail.get("start_time", "")))
-        end_time = _format_datetime(str(detail.get("end_time", ""))) if detail.get("end_time") else "—"
-        submitter = detail.get("user_id", "") or "—"
-        handler = _current_handler(detail) or "—"
+        end_time_raw = detail.get("end_time", "")
+        end_time = _format_datetime(str(end_time_raw)) if end_time_raw and end_time_raw != "0" else "—"
+        user_mapping = _load_user_mapping()
+        submitter_raw = detail.get("user_id", "")
+        submitter = _resolve_user_name(submitter_raw, user_mapping) if submitter_raw else "—"
+        handler_raw = _current_handler(detail)
+        handler = _resolve_user_name(handler_raw, user_mapping) if handler_raw else "—"
         form_widgets = parse_form(detail)
         form_title = ""
         for widget in form_widgets:
@@ -423,7 +481,7 @@ def render_instance_list():
 
         row[1].markdown(f"`{serial}`")
         row[2].markdown(status_text)
-        row[3].markdown(f"`{submitter}`")
+        row[3].markdown(submitter)
         row[4].markdown(submit_time)
         row[5].markdown(end_time)
         row[6].markdown(handler)
