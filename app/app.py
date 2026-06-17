@@ -5,6 +5,7 @@ Provides a web UI for querying and downloading approval attachments,
 inserting signatures, and printing payroll sheets.
 """
 
+import json
 import os
 import sys
 from datetime import datetime, timedelta
@@ -36,9 +37,24 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-APPROVAL_DEFINITIONS = {
+DEFINITIONS_FILE = Path(__file__).parent / "approval_definitions.json"
+
+_DEFAULT_DEFINITIONS = {
     "1CF34ABB-781C-40B0-9A4F-3CC416612423": "项目人员工资发放审批单（系统工资单）",
 }
+
+
+def _load_definitions():
+    try:
+        with open(DEFINITIONS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return dict(_DEFAULT_DEFINITIONS)
+
+
+def _save_definitions(data):
+    with open(DEFINITIONS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -107,25 +123,67 @@ def _format_datetime(ts_str: str) -> str:
 
 
 def render_sidebar():
+    definitions = _load_definitions()
+
     with st.sidebar:
         st.header("审批单分类")
 
-        for code, name in APPROVAL_DEFINITIONS.items():
+        if not definitions:
+            st.info("暂无模板，请在下方新增")
+
+        for code, name in definitions.items():
             selected = st.session_state.selected_definition == code
-            label = f"📄 {name}"
-            if st.button(
-                label,
-                key=f"def_{code}",
-                use_container_width=True,
-                type="primary" if selected else "secondary",
-            ):
-                st.session_state.selected_definition = code
-                st.rerun()
+            cols = st.columns([8, 1, 1])
+            with cols[0]:
+                if st.button(
+                    name,
+                    key=f"def_{code}",
+                    use_container_width=True,
+                    type="primary" if selected else "secondary",
+                ):
+                    st.session_state.selected_definition = code
+                    st.rerun()
+            with cols[1]:
+                with st.popover("✏️"):
+                    new_name = st.text_input("模板名称", value=name, key=f"edit_name_{code}")
+                    if st.button("保存", key=f"save_{code}"):
+                        definitions[code] = new_name.strip()
+                        _save_definitions(definitions)
+                        st.rerun()
+            with cols[2]:
+                if st.button("🗑️", key=f"del_{code}"):
+                    del definitions[code]
+                    if st.session_state.selected_definition == code:
+                        st.session_state.selected_definition = next(iter(definitions), "")
+                    _save_definitions(definitions)
+                    st.rerun()
+
+        st.divider()
+
+        with st.expander("➕ 新增审批模板"):
+            new_code = st.text_input("definitionCode", key="new_code")
+            new_name = st.text_input("模板名称", key="new_name")
+            if st.button("添加", key="add_def", use_container_width=True):
+                code = new_code.strip()
+                name = new_name.strip()
+                if code and name and code not in definitions:
+                    definitions[code] = name
+                    _save_definitions(definitions)
+                    st.session_state.selected_definition = code
+                    st.rerun()
+                elif code in definitions:
+                    st.error("该 definitionCode 已存在")
+
+    if st.session_state.selected_definition not in definitions and definitions:
+        st.session_state.selected_definition = next(iter(definitions))
 
     return st.session_state.selected_definition
 
 
 def render_query_panel(approval_code):
+    if not approval_code:
+        st.warning("请在左侧添加审批模板")
+        return
     st.header("📋 查询审批实例")
 
     col_status, col_start, col_end = st.columns([2, 2, 2])
