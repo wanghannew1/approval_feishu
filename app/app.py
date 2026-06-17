@@ -562,6 +562,7 @@ def _handle_download_and_sign():
 def main():
     Path("./signatures").mkdir(exist_ok=True)
     Path("./downloads").mkdir(exist_ok=True)
+    Path("./logs").mkdir(exist_ok=True)
     approval_code = render_sidebar()
     render_query_panel(approval_code)
     render_instance_list()

@@ -443,7 +443,7 @@ def _hide_columns(ws):
     header_row = 3
     for col in range(1, ws.max_column + 1):
         cell = ws.cell(row=header_row, column=col)
-        col_letter = cell.column_letter
+        col_letter = get_column_letter(col)
         hidden = ws.column_dimensions[col_letter].hidden
         if cell.value and str(cell.value).strip() in headers_to_hide:
             hidden = True

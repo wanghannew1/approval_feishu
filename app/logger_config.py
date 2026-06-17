@@ -5,7 +5,9 @@ from pathlib import Path
 from datetime import datetime
 
 # Configure logging
-LOG_FILE = Path(__file__).parent / "app.log"
+LOG_DIR = Path(__file__).parent.parent / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOG_DIR / "app.log"
 
 logging.basicConfig(
     level=logging.INFO,
