@@ -22,7 +22,7 @@ BASE_URL = "https://open.feishu.cn/open-apis"
 TOKEN_URL = f"{BASE_URL}/auth/v3/tenant_access_token/internal/"
 INSTANCES_URL = f"{BASE_URL}/approval/v4/instances"
 INSTANCE_DETAIL_URL = f"{BASE_URL}/approval/v4/instances/{{instance_code}}"
-SEARCH_URL = f"{BASE_URL}/approval/v4/instances/search"
+QUERY_URL = f"{BASE_URL}/approval/v4/instances/query"
 DRIVE_DOWNLOAD_URL = f"{BASE_URL}/drive/v1/files/{{file_token}}/download"
 
 DOWNLOAD_DIR = Path("./downloads")
@@ -148,7 +148,7 @@ def test_get_instance_detail(instance_code: str) -> dict:
             for ft in widget.get("value", []):
                 attachments.append({
                     "field_name": widget.get("name", "附件"),
-                    "file_token": ft,
+                    "file_token_or_url": ft,
                 })
 
     return {
@@ -163,10 +163,14 @@ def test_get_instance_detail(instance_code: str) -> dict:
     }
 
 
-def test_download_file(file_token: str, save_dir: Path) -> Path:
-    """测试 4: 下载文件到本地。"""
+def test_download_file(file_token_or_url: str, save_dir: Path) -> Path:
+    """测试 4: 下载文件到本地（自动检测 URL 或 file_token 格式）。"""
     headers = auth_headers()
-    url = DRIVE_DOWNLOAD_URL.format(file_token=file_token)
+
+    if file_token_or_url.startswith("http"):
+        url = file_token_or_url
+    else:
+        url = DRIVE_DOWNLOAD_URL.format(file_token=file_token_or_url)
 
     resp = requests.get(url, headers=headers, stream=True)
     resp.raise_for_status()
@@ -180,7 +184,7 @@ def test_download_file(file_token: str, save_dir: Path) -> Path:
             filename = match.group(1)
 
     if not filename:
-        filename = f"{file_token}.temp"
+        filename = f"{file_token_or_url}.temp"
 
     save_dir.mkdir(parents=True, exist_ok=True)
     filepath = save_dir / filename
@@ -207,7 +211,7 @@ def test_search_instances(status: str | None = None) -> dict:
     if status:
         body["instance_status"] = status
 
-    resp = requests.post(SEARCH_URL, headers=headers, json=body)
+    resp = requests.post(QUERY_URL, headers=headers, json=body)
     data = resp.json()
 
     if data.get("code") != 0:
@@ -280,7 +284,7 @@ def main():
                 if detail["attachments"]:
                     print(f"      附件: {len(detail['attachments'])} 个")
                     for att in detail["attachments"]:
-                        print(f"        📎 {att['field_name']}: {att['file_token'][:20]}...")
+                        print(f"        📎 {att['field_name']}: {att['file_token_or_url'][:40]}...")
                     if i == 0:
                         first_attachments = detail["attachments"]
                 else:
@@ -295,7 +299,7 @@ def main():
             print(f"{'─' * 60}")
             for att in first_attachments[:2]:  # 最多下载 2 个
                 try:
-                    saved = test_download_file(att["file_token"], DOWNLOAD_DIR)
+                    saved = test_download_file(att["file_token_or_url"], DOWNLOAD_DIR)
                     size_kb = saved.stat().st_size / 1024
                     print(f"  ✅ 下载成功: {saved.name} ({size_kb:.1f} KB)")
                     print(f"     路径: {saved}")
@@ -313,7 +317,12 @@ def main():
         if result.get("has_more"):
             print(f"  ⚠️  有更多数据，page_token={result.get('page_token', '')[:20]}...")
     except Exception as e:
-        print(f"  ❌ 失败: {e}")
+        err_str = str(e)
+        if "99991672" in err_str:
+            print("  ⚠️  应用缺少权限: approval:approval.list:readonly")
+            print("     请在飞书开放平台为该应用添加此权限后重试")
+        else:
+            print(f"  ❌ 失败: {e}")
 
     # ── 总结 ──
     print(f"\n{'=' * 60}")

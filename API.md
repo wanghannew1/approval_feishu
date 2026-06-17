@@ -224,11 +224,14 @@ with open(file_name, "wb") as f:
 
 ## API 5: 按状态搜索审批实例（可选）
 
-**用途**：比 API 2 更灵活的搜索，可直接按状态筛选并返回摘要信息。
+**用途**：比 API 2 更灵活的查询，可直接按状态筛选并支持分页。
+
+> 📌 此接口需要应用拥有 `approval:approval.list:readonly` 权限。
+> 如遇到 99991672 错误，请在飞书开放平台添加该权限。
 
 **请求**：
 ```
-POST /open-apis/approval/v4/instances/search
+POST /open-apis/approval/v4/instances/query
 Authorization: Bearer <tenant_access_token>
 Content-Type: application/json; charset=utf-8
 
@@ -250,7 +253,7 @@ Content-Type: application/json; charset=utf-8
 | `instance_status` | string | ❌ | `PENDING`/`APPROVED`/`REJECTED`/`CANCELED`，不传=全部 |
 | `instance_start_time_from` | string | ❌ | 开始时间（ms） |
 | `instance_start_time_to` | string | ❌ | 结束时间（ms） |
-| `page_size` | int | ❌ | 分页大小，默认 100 |
+| `page_size` | int | ❌ | 分页大小，5-200，默认 10 |
 | `page_token` | string | ❌ | 分页标记 |
 
 **响应**（与 API 2 不同，直接返回实例摘要）：
@@ -312,6 +315,7 @@ Content-Type: application/json; charset=utf-8
 1. **Token 有效期**: 7200 秒（2 小时），过期前建议提前刷新
 2. **Token 并发安全**: 获取新 token 时旧 token 会立即失效，建议缓存 + 加锁
 3. **分页**: API 2 仅返回 `instance_code`，无标题/状态摘要，翻页需用 `page_token`
-4. **文件下载**: `file_token` 从实例详情的 `form` JSON 中解析，附件控件类型为 `attachmentV2`
-5. **时间范围**: API 2 的时间范围无 120 天限制（与钉钉不同），但建议控制分页量
-6. **审批状态值**: `PENDING` 审批中, `APPROVED` 已通过, `REJECTED` 已拒绝, `CANCELED` 已撤销
+4. **文件下载**: 审批附件可通过 `attachmentV2` 控件的 `value` 获取下载链接（临时 URL）或 file_token，需兼容两种格式
+5. **API 5 权限**: `/instances/query` 需要 `approval:approval.list:readonly` 权限
+6. **时间范围**: API 2 的时间范围无 120 天限制（与钉钉不同），但建议控制分页量
+7. **审批状态值**: `PENDING` 审批中, `APPROVED` 已通过, `REJECTED` 已拒绝, `CANCELED` 已撤销
