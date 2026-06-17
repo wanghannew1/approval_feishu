@@ -223,32 +223,6 @@ def list_instances(
     return all_instances
 
 
-def query_approval_instances(
-    headers: dict,
-    approval_code: str,
-    start_time: int,
-    end_time: int,
-    page_size: int = 50,
-    page_token: Optional[str] = None,
-) -> dict:
-    """
-    Query approval instances with pagination.
-
-    Args:
-        headers: Authorization headers.
-        approval_code: Approval definition code.
-        start_time: Start timestamp in milliseconds.
-        end_time: End timestamp in milliseconds.
-        page_size: Number of results per page.
-        page_token: Pagination token from previous response.
-
-    Returns:
-        API response data dictionary.
-    """
-    # TODO: Implement
-    pass
-
-
 def get_instance_detail(token: str, instance_code: str) -> dict:
     """
     Get detailed information about a specific approval instance.
