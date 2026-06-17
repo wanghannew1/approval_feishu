@@ -40,7 +40,13 @@ STATUS_DISPLAY = {
     "RUNNING": "审批中",
 }
 
-title = detail.get("title") or detail.get("approval_name", "无标题")
+form_widgets = parse_form(detail)
+form_title = ""
+for widget in form_widgets:
+    if widget.get("name") == "标题":
+        form_title = widget.get("value", "")
+        break
+title = form_title or detail.get("approval_name", "无标题")
 raw_status = detail.get("status", "")
 status_text = STATUS_DISPLAY.get(raw_status, raw_status)
 ready = is_ready_for_print(detail)
