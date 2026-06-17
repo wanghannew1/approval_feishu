@@ -1442,7 +1442,7 @@ print('OK: uses Feishu API')
   - Files: `app.py`
   - Pre-commit: `python -c "import app"`
 
-- [ ] 15. 端到端集成测试
+- [x] 15. 端到端集成测试
 
   **What to do**:
   - 编写端到端测试覆盖完整业务流程:
