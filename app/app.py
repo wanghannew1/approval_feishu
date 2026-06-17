@@ -26,6 +26,7 @@ from app.batch_processor import (
 from app.feishu_api import (
     download_file,
     extract_attachments,
+    get_definition,
     get_instance_detail,
     get_tenant_token,
     list_instances,
@@ -184,7 +185,24 @@ def render_sidebar():
 
         with st.expander("➕ 新增审批模板"):
             new_code = st.text_input("definitionCode", key="new_code")
-            new_name = st.text_input("模板名称", key="new_name")
+            fetch_clicked = st.button("🔍 获取模板名称", key="fetch_name", use_container_width=True)
+
+            if fetch_clicked and new_code.strip():
+                app_id, app_secret = _get_credentials()
+                if not app_id or not app_secret:
+                    st.error("请先在设置中配置 App ID 和 App Secret")
+                else:
+                    token = _get_token(app_id, app_secret)
+                    if token:
+                        try:
+                            info = get_definition(token, new_code.strip())
+                            st.session_state.new_fetched_name = info.get("approval_name", "")
+                        except RuntimeError as e:
+                            st.error(f"获取失败: {e}")
+                            st.session_state.new_fetched_name = ""
+
+            fetched_name = st.session_state.get("new_fetched_name", "")
+            new_name = st.text_input("模板名称", value=fetched_name, key="new_name")
             if st.button("添加", key="add_def", use_container_width=True):
                 code = new_code.strip()
                 name = new_name.strip()
@@ -192,6 +210,7 @@ def render_sidebar():
                     definitions[code] = name
                     _save_definitions(definitions)
                     st.session_state.selected_definition = code
+                    st.session_state.new_fetched_name = ""
                     st.rerun()
                 elif code in definitions:
                     st.error("该 definitionCode 已存在")

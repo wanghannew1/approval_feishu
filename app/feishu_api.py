@@ -23,6 +23,7 @@ INSTANCES_URL = f"{BASE_URL}/approval/v4/instances"
 INSTANCE_DETAIL_URL = f"{BASE_URL}/approval/v4/instances/{{instance_code}}"
 QUERY_URL = f"{BASE_URL}/approval/v4/instances/query"
 DRIVE_DOWNLOAD_URL = f"{BASE_URL}/drive/v1/files/{{file_token}}/download"
+DEFINITION_URL = f"{BASE_URL}/approval/v4/definitions/{{definition_code}}"
 
 CACHE_FILE = Path(".token_cache.json")
 _CACHE_LOCK = threading.Lock()
@@ -353,3 +354,22 @@ def download_file(token: str, file_token_or_url: str, save_dir: str) -> str:
             f.write(chunk)
 
     return str(filepath)
+
+
+def get_definition(token: str, definition_code: str) -> dict:
+    """Get approval definition details from Feishu API.
+
+    GET /open-apis/approval/v4/definitions/{definition_code}
+
+    Returns the `data` dict containing `approval_name` and other fields.
+    Raises RuntimeError if the API call fails.
+    """
+    url = DEFINITION_URL.format(definition_code=definition_code)
+    resp = requests.get(url, headers=get_auth_headers(token))
+    data = resp.json()
+
+    if data.get("code") != 0:
+        raise RuntimeError(
+            f"获取审批定义失败: code={data.get('code')} msg={data.get('msg')}"
+        )
+    return data.get("data", {})
