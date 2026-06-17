@@ -20,9 +20,15 @@ approval_feishu/
 ```bash
 # 创建虚拟环境
 uv venv
-source .venv/bin/activate
+source .venv/bin/activate   # Linux/macOS
+.venv\Scripts\activate      # Windows
 
-# 安装依赖
+# 安装依赖（使用清华镜像加速）
+uv pip install -r requirements.txt --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 或者设置环境变量后直接安装
+# Windows: set UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+# Linux/macOS: export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 uv pip install -r requirements.txt
 ```
 
@@ -55,6 +61,7 @@ python test_api.py
 | `GET /approval/v4/instances` | 查询审批实例列表 |
 | `GET /approval/v4/instances/{code}` | 获取实例详情 |
 | `GET /drive/v1/files/{token}/download` | 下载附件文件 |
-| `POST /approval/v4/instances/search` | 按状态搜索 |
+| `POST /approval/v4/instances/query` | 按状态查询 |
+
 
 详见 [`API.md`](./API.md)。
