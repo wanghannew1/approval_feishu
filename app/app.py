@@ -415,7 +415,7 @@ def render_instance_list():
         row[5].markdown(handler)
         if row[6].button("📋", key=f"det_{code}", help="查看详情"):
             st.session_state.detail_code = code
-            st.switch_page("app/pages/detail.py")
+            st.switch_page("pages/detail.py")
 
     st.session_state.selected_instances = selected
 

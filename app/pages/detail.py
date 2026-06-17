@@ -19,7 +19,7 @@ code = st.session_state.get("detail_code")
 if not code:
     st.warning("未选择审批单")
     if st.button("← 返回列表"):
-        st.switch_page("app/app.py")
+        st.switch_page("app.py")
     st.stop()
 
 if st.button("← 返回列表", key="back"):
