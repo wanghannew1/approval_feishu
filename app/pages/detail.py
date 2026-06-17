@@ -98,123 +98,138 @@ with col_meta:
 
 st.divider()
 
-# ── tabs ─────────────────────────────────────────────────────────────────────
-tab_detail, tab_log = st.tabs(["审批详情", "审批记录"])
+# ── tab navigation (radio simulating tabs, both sections always visible) ──
+tab_select = st.radio(
+    "导航",
+    ["审批详情", "审批记录"],
+    horizontal=True,
+    label_visibility="collapsed",
+    key="detail_tabs",
+)
 
-with tab_detail:
-    for w in form_widgets:
-        w_type = w.get("type", "")
-        w_name = w.get("name", "")
-        w_value = w.get("value", "")
+# ── 审批详情 ──
+st.subheader("审批详情")
+for w in form_widgets:
+    w_type = w.get("type", "")
+    w_name = w.get("name", "")
+    w_value = w.get("value", "")
 
-        if w_type == "attachmentV2":
-            continue
+    if w_type == "attachmentV2":
+        continue
 
-        if w_type == "fieldList":
-            with st.expander(f"📋 {w_name}", expanded=True):
-                if isinstance(w_value, list):
-                    for row_item in w_value:
-                        if isinstance(row_item, list):
-                            for item in row_item:
-                                sub_name = item.get("name", "")
-                                sub_val = item.get("value", "")
-                                sub_type = item.get("type", "")
-                                if sub_type == "amount":
-                                    ext = item.get("ext", {})
-                                    capital = ext.get("capitalValue", "")
-                                    cur = ext.get("currency", "CNY")
-                                    val_fmt = f"{sub_val:,.2f}" if isinstance(sub_val, (int, float)) else str(sub_val)
-                                    st.write(f"**{sub_name}**  {val_fmt} {cur}-人民币元")
-                                    if capital:
-                                        st.caption(capital)
-                                else:
-                                    st.write(f"**{sub_name}**  {sub_val}")
-                        else:
-                            st.write(str(row_item))
-            continue
+    if w_type == "fieldList":
+        with st.expander(f"📋 {w_name}", expanded=True):
+            if isinstance(w_value, list):
+                for row_item in w_value:
+                    if isinstance(row_item, list):
+                        for item in row_item:
+                            sub_name = item.get("name", "")
+                            sub_val = item.get("value", "")
+                            sub_type = item.get("type", "")
+                            if sub_type == "amount":
+                                ext = item.get("ext", {})
+                                capital = ext.get("capitalValue", "")
+                                cur = ext.get("currency", "CNY")
+                                val_fmt = f"{sub_val:,.2f}" if isinstance(sub_val, (int, float)) else str(sub_val)
+                                st.write(f"**{sub_name}**  {val_fmt} {cur}-人民币元")
+                                if capital:
+                                    st.caption(capital)
+                            else:
+                                st.write(f"**{sub_name}**  {sub_val}")
+                    else:
+                        st.write(str(row_item))
+        continue
 
-        st.markdown(f"**{w_name}**")
-        st.write(str(w_value))
-        st.divider()
+    st.markdown(f"**{w_name}**")
+    st.write(str(w_value))
+    st.divider()
 
-    # attachments
-    attachments = extract_attachments(form_widgets)
-    if attachments:
-        for att in attachments:
-            field_name = att.get("field_name", "附件")
-            vals = att.get("value", [])
-            st.markdown(f"📎 **{field_name}**")
-            for v in vals:
-                fname = v.rsplit("/", 1)[-1].split("?")[0] if v else "文件"
-                st.caption(fname)
+attachments = extract_attachments(form_widgets)
+if attachments:
+    for att in attachments:
+        field_name = att.get("field_name", "附件")
+        vals = att.get("value", [])
+        st.markdown(f"📎 **{field_name}**")
+        for v in vals:
+            fname = v.rsplit("/", 1)[-1].split("?")[0] if v else "文件"
+            st.caption(fname)
 
-with tab_log:
-    records = []
+# ── 审批记录 ──
+st.divider()
 
-    # 1) submitter from timeline START event
-    for event in detail.get("timeline", []):
-        if event.get("type") == "START":
-            records.append({
-                "节点名称": "提交",
-                "审批人": _resolve_name(event.get("user_id", ""), user_mapping) or event.get("user_id", ""),
-                "审批结果": "已提交",
-                "审批意见": "",
-                "审批时间": _fmt(str(event.get("create_time", ""))),
-            })
+# anchor + scroll trigger
+st.markdown('<span id="records-section"></span>', unsafe_allow_html=True)
 
-    # 2) current processing tasks
-    for task in detail.get("task_list", []):
-        t_status = task.get("status", "")
-        result = "审批中" if t_status == "PENDING" else STATUS_LABEL.get(t_status, t_status)
+if tab_select == "审批记录":
+    st.markdown(
+        "<script>setTimeout(function(){var e=document.getElementById('records-section');e&&e.scrollIntoView({behavior:'smooth',block:'start'});},100);</script>",
+        unsafe_allow_html=True,
+    )
+
+st.subheader("审批记录")
+
+records = []
+
+for event in detail.get("timeline", []):
+    if event.get("type") == "START":
         records.append({
-            "节点名称": task.get("node_name", ""),
-            "审批人": _resolve_name(task.get("user_id", ""), user_mapping) or task.get("user_id", ""),
-            "审批结果": result,
+            "节点名称": "提交",
+            "审批人": _resolve_name(event.get("user_id", ""), user_mapping) or event.get("user_id", ""),
+            "审批结果": "已提交",
             "审批意见": "",
-            "审批时间": _fmt(str(task.get("start_time", ""))),
+            "审批时间": _fmt(str(event.get("create_time", ""))),
         })
 
-    # 3) approval history
-    for a in detail.get("approver_list", []):
-        records.append({
-            "节点名称": "",
-            "审批人": a.get("approver_name", ""),
-            "审批结果": STATUS_LABEL.get(a.get("status", ""), a.get("status", "")),
-            "审批意见": a.get("comment", ""),
-            "审批时间": _fmt(str(a.get("approval_time", ""))),
-        })
+for task in detail.get("task_list", []):
+    t_status = task.get("status", "")
+    result = "审批中" if t_status == "PENDING" else STATUS_LABEL.get(t_status, t_status)
+    records.append({
+        "节点名称": task.get("node_name", ""),
+        "审批人": _resolve_name(task.get("user_id", ""), user_mapping) or task.get("user_id", ""),
+        "审批结果": result,
+        "审批意见": "",
+        "审批时间": _fmt(str(task.get("start_time", ""))),
+    })
 
-    # 4) end node
-    end_time_raw = detail.get("end_time", "")
-    if end_time_raw and end_time_raw != "0":
-        records.append({
-            "节点名称": "结束",
-            "审批人": "系统",
-            "审批结果": STATUS_LABEL.get(raw_status, raw_status),
-            "审批意见": "",
-            "审批时间": _fmt(str(end_time_raw)),
-        })
-    else:
-        records.append({
-            "节点名称": "结束",
-            "审批人": "系统",
-            "审批结果": "未结束",
-            "审批意见": "",
-            "审批时间": "",
-        })
+for a in detail.get("approver_list", []):
+    records.append({
+        "节点名称": "",
+        "审批人": a.get("approver_name", ""),
+        "审批结果": STATUS_LABEL.get(a.get("status", ""), a.get("status", "")),
+        "审批意见": a.get("comment", ""),
+        "审批时间": _fmt(str(a.get("approval_time", ""))),
+    })
 
-    if records:
-        st.dataframe(
-            records,
-            width="stretch",
-            hide_index=True,
-            column_config={
-                "节点名称": st.column_config.TextColumn("节点名称", width="small"),
-                "审批人": st.column_config.TextColumn("审批人", width="small"),
-                "审批结果": st.column_config.TextColumn("审批结果", width="small"),
-                "审批意见": st.column_config.TextColumn("审批意见", width="medium"),
-                "审批时间": st.column_config.TextColumn("审批时间", width="medium"),
-            },
-        )
-    else:
-        st.info("无审批记录")
+end_time_raw = detail.get("end_time", "")
+if end_time_raw and end_time_raw != "0":
+    records.append({
+        "节点名称": "结束",
+        "审批人": "系统",
+        "审批结果": STATUS_LABEL.get(raw_status, raw_status),
+        "审批意见": "",
+        "审批时间": _fmt(str(end_time_raw)),
+    })
+else:
+    records.append({
+        "节点名称": "结束",
+        "审批人": "系统",
+        "审批结果": "未结束",
+        "审批意见": "",
+        "审批时间": "",
+    })
+
+if records:
+    st.dataframe(
+        records,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "节点名称": st.column_config.TextColumn("节点名称", width="small"),
+            "审批人": st.column_config.TextColumn("审批人", width="small"),
+            "审批结果": st.column_config.TextColumn("审批结果", width="small"),
+            "审批意见": st.column_config.TextColumn("审批意见", width="medium"),
+            "审批时间": st.column_config.TextColumn("审批时间", width="medium"),
+        },
+    )
+else:
+    st.info("无审批记录")
