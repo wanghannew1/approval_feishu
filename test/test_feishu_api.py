@@ -10,8 +10,12 @@ import pytest
 from app.feishu_api import (
     get_auth_headers,
     get_tenant_token,
+    query_instances,
+    list_instances,
     BASE_URL,
     TOKEN_URL,
+    QUERY_URL,
+    INSTANCES_URL,
     CACHE_FILE,
 )
 
@@ -102,3 +106,164 @@ class TestFeishuApi:
         with patch("app.feishu_api.requests.post", return_value=mock_response):
             with pytest.raises(RuntimeError, match="获取 token 失败"):
                 get_tenant_token("bad_id", "bad_secret")
+
+
+class TestQueryInstances:
+    """Test suite for query_instances POST endpoint."""
+
+    def test_query_instances_success(self, mock_token: str):
+        """Mock 200 and verify instance_list is returned."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "code": 0,
+            "msg": "success",
+            "data": {
+                "instance_list": [
+                    {"instance_code": "ABC-123", "status": "APPROVED"}
+                ],
+                "has_more": False,
+                "page_token": "",
+            },
+        }
+        with patch("app.feishu_api.requests.post", return_value=mock_response) as mock_post:
+            result = query_instances(mock_token, "approval_1")
+            assert result == {
+                "instance_list": [{"instance_code": "ABC-123", "status": "APPROVED"}],
+                "has_more": False,
+                "page_token": "",
+            }
+            mock_post.assert_called_once_with(
+                QUERY_URL,
+                headers=get_auth_headers(mock_token),
+                json={"approval_code": "approval_1", "page_size": 50},
+            )
+
+    def test_query_instances_with_status(self, mock_token: str):
+        """Mock with instance_status filter."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "code": 0,
+            "msg": "success",
+            "data": {"instance_list": [], "has_more": False, "page_token": ""},
+        }
+        with patch("app.feishu_api.requests.post", return_value=mock_response) as mock_post:
+            result = query_instances(
+                mock_token,
+                "approval_1",
+                page_size=10,
+                page_token="tok1",
+                instance_status="PENDING",
+            )
+            assert result == {"instance_list": [], "has_more": False, "page_token": ""}
+            mock_post.assert_called_once_with(
+                QUERY_URL,
+                headers=get_auth_headers(mock_token),
+                json={
+                    "approval_code": "approval_1",
+                    "page_size": 10,
+                    "page_token": "tok1",
+                    "instance_status": "PENDING",
+                },
+            )
+
+    def test_query_instances_empty(self, mock_token: str):
+        """Mock empty result."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "code": 0,
+            "msg": "success",
+            "data": {"instance_list": [], "has_more": False, "page_token": ""},
+        }
+        with patch("app.feishu_api.requests.post", return_value=mock_response):
+            result = query_instances(mock_token, "approval_1")
+            assert result["instance_list"] == []
+            assert result["has_more"] is False
+
+    def test_query_instances_api_error(self, mock_token: str):
+        """Mock code != 0 and verify RuntimeError."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "code": 99991672,
+            "msg": "permission denied",
+        }
+        with patch("app.feishu_api.requests.post", return_value=mock_response):
+            with pytest.raises(RuntimeError, match="查询实例失败"):
+                query_instances(mock_token, "approval_1")
+
+
+class TestListInstances:
+    """Test suite for list_instances GET endpoint."""
+
+    def test_list_instances_success(self, mock_token: str):
+        """Mock GET /instances and verify list returned."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "code": 0,
+            "msg": "success",
+            "data": {
+                "instance_code_list": ["code1", "code2"],
+                "has_more": False,
+                "page_token": "",
+            },
+        }
+        with patch("app.feishu_api.requests.get", return_value=mock_response) as mock_get:
+            result = list_instances(mock_token, "approval_1", "1000", "2000")
+            assert result == ["code1", "code2"]
+            mock_get.assert_called_once_with(
+                INSTANCES_URL,
+                headers=get_auth_headers(mock_token),
+                params={
+                    "approval_code": "approval_1",
+                    "start_time": "1000",
+                    "end_time": "2000",
+                    "page_size": 50,
+                },
+            )
+
+    def test_list_instances_pagination(self, mock_token: str):
+        """Mock has_more=True and verify auto-pagination."""
+        resp1 = MagicMock()
+        resp1.json.return_value = {
+            "code": 0,
+            "msg": "success",
+            "data": {
+                "instance_code_list": ["code1"],
+                "has_more": True,
+                "page_token": "tok1",
+            },
+        }
+        resp2 = MagicMock()
+        resp2.json.return_value = {
+            "code": 0,
+            "msg": "success",
+            "data": {
+                "instance_code_list": ["code2"],
+                "has_more": False,
+                "page_token": "",
+            },
+        }
+        with patch(
+            "app.feishu_api.requests.get", side_effect=[resp1, resp2]
+        ) as mock_get:
+            result = list_instances(mock_token, "approval_1", "1000", "2000")
+            assert result == ["code1", "code2"]
+            assert mock_get.call_count == 2
+            second_call = mock_get.call_args_list[1]
+            assert second_call.kwargs["params"]["page_token"] == "tok1"
+
+    def test_list_instances_empty(self, mock_token: str):
+        """Mock empty result."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "code": 0,
+            "msg": "success",
+            "data": {
+                "instance_code_list": [],
+                "has_more": False,
+                "page_token": "",
+            },
+        }
+        with patch("app.feishu_api.requests.get", return_value=mock_response) as mock_get:
+            result = list_instances(mock_token, "approval_1", "1000", "2000")
+            assert result == []
+            mock_get.assert_called_once()

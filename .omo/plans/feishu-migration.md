@@ -584,7 +584,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
   - Files: `feishu_api.py, test/test_feishu_api.py`
   - Pre-commit: `python -m pytest test/test_feishu_api.py -v`
 
-- [ ] 5. 飞书审批列表查询（搜索API + 列表API）
+- [x] 5. 飞书审批列表查询（搜索API + 列表API）
 
   **What to do**:
   - TDD: 先写测试 test_feishu_api.py::test_search_instances + test_list_instances

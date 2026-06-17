@@ -118,6 +118,109 @@ def get_auth_headers(token: str) -> dict:
     }
 
 
+def query_instances(
+    token: str,
+    approval_code: str,
+    page_size: int = 50,
+    page_token: str | None = None,
+    instance_status: str | None = None,
+) -> dict:
+    """
+    Query approval instances by status with pagination.
+
+    Args:
+        token: Valid tenant access token.
+        approval_code: Approval definition code.
+        page_size: Number of results per page.
+        page_token: Pagination token from previous response.
+        instance_status: Filter by status (PENDING/APPROVED/REJECTED/CANCELED).
+
+    Returns:
+        API response data dictionary containing instance_list, has_more, page_token.
+
+    Raises:
+        RuntimeError: If the API returns a non-zero code.
+    """
+    headers = get_auth_headers(token)
+    body = {
+        "approval_code": approval_code,
+        "page_size": page_size,
+    }
+    if page_token:
+        body["page_token"] = page_token
+    if instance_status:
+        body["instance_status"] = instance_status
+
+    resp = requests.post(QUERY_URL, headers=headers, json=body)
+    data = resp.json()
+
+    if data.get("code") != 0:
+        raise RuntimeError(
+            f"查询实例失败: code={data.get('code')} msg={data.get('msg')}"
+        )
+
+    return data["data"]
+
+
+def list_instances(
+    token: str,
+    approval_code: str,
+    start_time: str,
+    end_time: str,
+    page_size: int = 50,
+) -> list[str]:
+    """
+    List all approval instance codes within a time range.
+
+    Automatically follows page_token pagination and collects
+    all instance codes into a single flat list.
+
+    Args:
+        token: Valid tenant access token.
+        approval_code: Approval definition code.
+        start_time: Start timestamp in milliseconds.
+        end_time: End timestamp in milliseconds.
+        page_size: Number of results per page.
+
+    Returns:
+        List of instance code strings.
+
+    Raises:
+        RuntimeError: If the API returns a non-zero code.
+    """
+    headers = get_auth_headers(token)
+    all_instances: list[str] = []
+    current_page_token: str | None = None
+
+    while True:
+        params = {
+            "approval_code": approval_code,
+            "start_time": start_time,
+            "end_time": end_time,
+            "page_size": page_size,
+        }
+        if current_page_token:
+            params["page_token"] = current_page_token
+
+        resp = requests.get(INSTANCES_URL, headers=headers, params=params)
+        data = resp.json()
+
+        if data.get("code") != 0:
+            raise RuntimeError(
+                f"查询实例列表失败: code={data.get('code')} msg={data.get('msg')}"
+            )
+
+        batch = data["data"]["instance_code_list"]
+        all_instances.extend(batch)
+
+        if not data["data"]["has_more"]:
+            break
+
+        current_page_token = data["data"]["page_token"]
+
+    return all_instances
+
+
 def query_approval_instances(
     headers: dict,
     approval_code: str,
