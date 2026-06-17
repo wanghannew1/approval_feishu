@@ -20,39 +20,50 @@ if (-not (Test-Path ".env")) {
     exit 1
 }
 
-# --- 2. Set up Python / pip paths ---
-# Use venv Python when available, otherwise fall back to system Python
-$venvPython = ".venv\Scripts\python.exe"
-$venvPip    = ".venv\Scripts\pip.exe"
-$venvStreamlit = ".venv\Scripts\streamlit.exe"
+# --- 2. Locate Python ---
+# Priority: 1) already-active venv  2) .venv/ dir  3) venv/ dir  4) system python
+$PY = $null
+$venvName = ""
 
-if ((Test-Path $venvPython) -and (Test-Path $venvPip)) {
-    $PY = $venvPython
-    $PIP = $venvPip
-    Write-Host "[1/3] Using virtual environment Python" -ForegroundColor Green
-} else {
+if ($env:VIRTUAL_ENV) {
+    # A virtual environment is already active - use it
+    $venvName = Split-Path $env:VIRTUAL_ENV -Leaf
+    $PY = Join-Path $env:VIRTUAL_ENV "Scripts\python.exe"
+    Write-Host "[1/3] Using active virtual environment: $venvName" -ForegroundColor Green
+}
+elseif (Test-Path ".venv\Scripts\python.exe") {
+    $venvName = ".venv"
+    $PY = ".venv\Scripts\python.exe"
+    Write-Host "[1/3] Using virtual environment: .venv" -ForegroundColor Green
+}
+elseif (Test-Path "venv\Scripts\python.exe") {
+    $venvName = "venv"
+    $PY = "venv\Scripts\python.exe"
+    Write-Host "[1/3] Using virtual environment: venv" -ForegroundColor Green
+}
+else {
     $PY = "python"
-    $PIP = "pip"
-    Write-Host "[1/3] Virtual environment not found, using system Python" -ForegroundColor Yellow
+    Write-Host "[1/3] No virtual environment found, using system Python" -ForegroundColor Yellow
+    Write-Host "      (Create one with: uv venv  or  python -m venv .venv)" -ForegroundColor Yellow
 }
 
-# --- 3. Ensure pip itself is available ---
+# Quick sanity check
 $savedErrorPref = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
-
-& $PY -m pip --version 2>&1 | Out-Null
+& $PY --version 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "[ERROR] pip is not available. Please install pip first." -ForegroundColor Red
+    Write-Host "[ERROR] Cannot run Python: $PY" -ForegroundColor Red
     Read-Host "Press Enter to exit"
     exit 1
 }
+$ErrorActionPreference = $savedErrorPref
 
-# --- 4. Check and install dependencies ---
+# --- 3. Install dependencies ---
 Write-Host "[2/3] Checking dependencies..." -ForegroundColor Green
 
+$ErrorActionPreference = "Continue"
 & $PY -c "import streamlit, requests, dotenv, openpyxl" 2>&1 | Out-Null
 $importFailed = ($LASTEXITCODE -ne 0)
-
 $ErrorActionPreference = $savedErrorPref
 
 if ($importFailed) {
@@ -63,28 +74,24 @@ if ($importFailed) {
     $ErrorActionPreference = $savedErrorPref
 
     if ($installFailed) {
-        Write-Host "[ERROR] Dependency installation failed. Try manually:" -ForegroundColor Red
-        Write-Host "        $PIP install -r requirements.txt --index-url https://pypi.tuna.tsinghua.edu.cn/simple" -ForegroundColor Yellow
+        Write-Host "[ERROR] Dependency installation failed." -ForegroundColor Red
+        Write-Host "        Try manually: $PY -m pip install -r requirements.txt" -ForegroundColor Yellow
         Read-Host "Press Enter to exit"
         exit 1
     }
 }
 Write-Host "      Dependencies ready" -ForegroundColor Green
 
-# --- 5. Launch Streamlit ---
+# --- 4. Launch Streamlit ---
 Write-Host "[3/3] Starting Streamlit..." -ForegroundColor Green
 Write-Host ""
 Write-Host "Browser will open automatically. If not, visit: http://localhost:8501" -ForegroundColor Cyan
 Write-Host "Press Ctrl+C to stop" -ForegroundColor Cyan
 Write-Host ""
 
-if (Test-Path $venvStreamlit) {
-    & $venvStreamlit run app/app.py --server.port 8501 --server.headless false
-} else {
-    & $PY -m streamlit run app/app.py --server.port 8501 --server.headless false
-}
+& $PY -m streamlit run app/app.py --server.port 8501 --server.headless false
 
-# --- 6. Exit ---
+# --- 5. Exit ---
 Write-Host ""
 Write-Host "Server stopped." -ForegroundColor Yellow
 Read-Host "Press Enter to exit"
