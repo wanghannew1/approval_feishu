@@ -523,6 +523,8 @@ def _handle_download_and_sign():
     progress = st.progress(0, text=f"下载及签名 0/{total}")
 
     success_count = 0
+    total_downloaded = 0
+    total_signed = 0
     for i, code in enumerate(selected):
         try:
             result = process_single_approval(
@@ -535,6 +537,8 @@ def _handle_download_and_sign():
             )
             if result["success"]:
                 success_count += 1
+                total_downloaded += len(result.get("downloaded", []))
+                total_signed += len(result.get("signed", []))
                 progress.progress(
                     (i + 1) / total,
                     text=f"✅ {result['title'][:20]}: {result['message']}",
@@ -556,7 +560,7 @@ def _handle_download_and_sign():
             )
 
     progress.empty()
-    st.success(f"下载及签名完成：成功 {success_count}/{total}")
+    st.success(f"下载及签名完成：成功 {success_count}/{total}，共下载 {total_downloaded} 个表，签名 {total_signed} 处")
 
 
 def main():
