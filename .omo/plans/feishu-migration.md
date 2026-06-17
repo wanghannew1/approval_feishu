@@ -497,7 +497,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
   - Files: `API.md`
   - Pre-commit: 无
 
-- [ ] 4. 飞书认证模块 feishu_api.py (token获取+缓存)
+- [x] 4. 飞书认证模块 feishu_api.py (token获取+缓存)
 
   **What to do**:
   - TDD: 先写测试 test_feishu_api.py::test_get_tenant_token
@@ -761,7 +761,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews):
   - Files: `role_mapping.json, user_mapping.json, payroll_sheet_config.json`
   - Pre-commit: `python -c "import json; json.load(open('role_mapping.json'))"`
 
-- [ ] 7. 缓存管理模块 cache_manager.py 适配
+- [x] 7. 缓存管理模块 cache_manager.py 适配
 
   **What to do**:
   - 适配 PaySignPrinter/cache_manager.py 为飞书版

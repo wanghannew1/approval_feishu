@@ -5,8 +5,14 @@ Provides functions to authenticate with Feishu Open Platform,
 query approval instances, and download attachments.
 """
 
-import requests
+import json
+import os
+import threading
+import time
+from pathlib import Path
 from typing import Optional
+
+import requests
 
 
 BASE_URL = "https://open.feishu.cn/open-apis"
@@ -16,10 +22,51 @@ INSTANCE_DETAIL_URL = f"{BASE_URL}/approval/v4/instances/{{instance_code}}"
 QUERY_URL = f"{BASE_URL}/approval/v4/instances/query"
 DRIVE_DOWNLOAD_URL = f"{BASE_URL}/drive/v1/files/{{file_token}}/download"
 
+CACHE_FILE = Path(".token_cache.json")
+_CACHE_LOCK = threading.Lock()
+
+
+def _load_cached_token(cache_path: Path | None = None) -> dict | None:
+    """Load cached token data if it exists and is not expired."""
+    if cache_path is None:
+        cache_path = CACHE_FILE
+    if not cache_path.exists():
+        return None
+    try:
+        with open(cache_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+    if data.get("expire_at", 0) > time.time():
+        return data
+    return None
+
+
+def _save_token(token: str, expire_in: int, cache_path: Path | None = None) -> None:
+    """Save token to cache with 5-minute early expiry."""
+    if cache_path is None:
+        cache_path = CACHE_FILE
+    data = {
+        "tenant_access_token": token,
+        "expire_at": time.time() + expire_in - 300,
+    }
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    # Atomic write to avoid corrupted cache files
+    temp_path = cache_path.with_suffix(".tmp")
+    with open(temp_path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temp_path, cache_path)
+
 
 def get_tenant_token(app_id: str, app_secret: str) -> str:
     """
     Get tenant access token from Feishu API.
+
+    Fetches a new token if none is cached or if the cached token has
+    expired (with a 5-minute early expiry margin).  The cache is
+    written atomically and protected by a thread lock.
 
     Args:
         app_id: Feishu application ID.
@@ -31,8 +78,28 @@ def get_tenant_token(app_id: str, app_secret: str) -> str:
     Raises:
         RuntimeError: If token acquisition fails.
     """
-    # TODO: Implement with caching
-    pass
+    with _CACHE_LOCK:
+        cached = _load_cached_token()
+        if cached:
+            return cached["tenant_access_token"]
+
+    payload = {"app_id": app_id, "app_secret": app_secret}
+    resp = requests.post(TOKEN_URL, json=payload)
+    data = resp.json()
+
+    if data.get("code") != 0:
+        raise RuntimeError(
+            f"获取 token 失败: code={data.get('code')} msg={data.get('msg')}"
+        )
+
+    token = data["tenant_access_token"]
+    with _CACHE_LOCK:
+        # Re-check in case another thread already saved a token
+        cached = _load_cached_token()
+        if cached:
+            return cached["tenant_access_token"]
+        _save_token(token, data.get("expire", 7200))
+    return token
 
 
 def get_auth_headers(token: str) -> dict:
