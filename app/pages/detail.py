@@ -55,6 +55,21 @@ def _fmt(ts_str):
         return ""
 
 
+def _waiting_time(ts_str):
+    try:
+        start = int(ts_str) / 1000
+        if start <= 0:
+            return ""
+        delta = datetime.now().timestamp() - start
+        days = int(delta / 86400)
+        if days >= 1:
+            return f"已等待 {days} 天"
+        hours = int(delta / 3600)
+        return f"已等待 {hours} 小时"
+    except (ValueError, TypeError):
+        return ""
+
+
 # ── page setup ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="审批详情", page_icon="📋", layout="wide")
 
@@ -165,12 +180,13 @@ for event in detail.get("timeline", []):
 for task in detail.get("task_list", []):
     t_status = task.get("status", "")
     result = "审批中" if t_status == "PENDING" else STATUS_LABEL.get(t_status, t_status)
+    task_time = _waiting_time(str(task.get("start_time", ""))) if t_status == "PENDING" else _fmt(str(task.get("start_time", "")))
     records.append({
         "节点名称": task.get("node_name", ""),
         "审批人": _resolve_name(task.get("user_id", ""), user_mapping) or task.get("user_id", ""),
         "审批结果": result,
         "审批意见": "",
-        "审批时间": _fmt(str(task.get("start_time", ""))),
+        "审批时间": task_time,
     })
 
 for a in detail.get("approver_list", []):
