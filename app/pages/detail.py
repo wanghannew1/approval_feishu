@@ -1,4 +1,6 @@
+import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).parent.parent
@@ -7,15 +9,56 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 import streamlit as st
 from dotenv import load_dotenv
 
-from app.feishu_api import get_instance_detail, parse_form, extract_attachments
-from app.batch_processor import get_approvers_with_roles, is_ready_for_print
+from app.feishu_api import extract_attachments, parse_form
 
 load_dotenv()
 
-st.set_page_config(page_title="详情页面", page_icon="📋", layout="wide")
+USER_MAPPING_PATH = _PROJECT_ROOT / "user_mapping.json"
+
+STATUS_BADGE = {
+    "PENDING": "🟡 审批中",
+    "APPROVED": "🟢 已通过",
+    "REJECTED": "🔴 已拒绝",
+    "CANCELED": "⚪ 已撤销",
+    "RUNNING": "🟡 审批中",
+}
+STATUS_LABEL = {
+    "PENDING": "审批中",
+    "APPROVED": "已通过",
+    "REJECTED": "已拒绝",
+    "CANCELED": "已撤销",
+    "RUNNING": "审批中",
+}
+
+
+def _load_user_mapping():
+    try:
+        with open(USER_MAPPING_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _resolve_name(uid, mapping):
+    if not uid:
+        return ""
+    return mapping.get(uid, uid)
+
+
+def _fmt(ts_str):
+    try:
+        ts = int(ts_str) / 1000
+        if ts <= 0:
+            return ""
+        return datetime.fromtimestamp(ts).strftime("%m月%d日 %H:%M")
+    except (ValueError, TypeError):
+        return ""
+
+
+# ── page setup ───────────────────────────────────────────────────────────────
+st.set_page_config(page_title="审批详情", page_icon="📋", layout="wide")
 
 code = st.session_state.get("detail_code")
-
 if not code:
     st.warning("未选择审批单")
     if st.button("← 返回列表"):
@@ -27,78 +70,151 @@ if st.button("← 返回列表", key="back"):
     st.switch_page("app.py")
 
 detail = st.session_state.instance_details_cache.get(code)
-
 if not detail:
     st.spinner("加载中...")
     st.stop()
 
-STATUS_DISPLAY = {
-    "PENDING": "审批中",
-    "APPROVED": "已通过",
-    "REJECTED": "已拒绝",
-    "CANCELED": "已撤销",
-    "RUNNING": "审批中",
-}
-
+# ── data ─────────────────────────────────────────────────────────────────────
 form_widgets = parse_form(detail)
-form_title = ""
-for widget in form_widgets:
-    if widget.get("name") == "标题":
-        form_title = widget.get("value", "")
-        break
-title = form_title or detail.get("approval_name", "无标题")
-raw_status = detail.get("status", "")
-status_text = STATUS_DISPLAY.get(raw_status, raw_status)
-ready = is_ready_for_print(detail)
-if ready and raw_status == "RUNNING":
-    status_text = "审批完成待出纳办理"
+user_mapping = _load_user_mapping()
 
 serial = detail.get("serial_number") or code
+approval_name = detail.get("approval_name", "")
+raw_status = detail.get("status", "")
+start_time = _fmt(str(detail.get("start_time", "")))
+submitter_name = _resolve_name(detail.get("user_id", ""), user_mapping) or detail.get("user_id", "")
 
-st.title(title)
-st.caption(f"状态: {status_text}  |  审批单编号: `{serial}`")
+# ── header ───────────────────────────────────────────────────────────────────
+st.caption(f"编号：{serial}")
+st.subheader(approval_name)
+
+col_status, col_meta = st.columns([1, 3])
+with col_status:
+    badge = STATUS_BADGE.get(raw_status, raw_status)
+    st.markdown(f"### {badge}")
+with col_meta:
+    if submitter_name:
+        st.caption(f"{submitter_name} 提交于 {start_time}")
 
 st.divider()
 
-tab1, tab2, tab3 = st.tabs(["表单字段", "审批人", "附件"])
+# ── tabs ─────────────────────────────────────────────────────────────────────
+tab_detail, tab_log = st.tabs(["审批详情", "审批记录"])
 
-with tab1:
-    non_attachment = [w for w in form_widgets if w.get("type") != "attachmentV2"]
-    if non_attachment:
-        form_data = []
-        for w in non_attachment:
-            form_data.append({
-                "字段": w.get("name", ""),
-                "类型": w.get("type", ""),
-                "值": str(w.get("value", "")) if w.get("value") else "",
-            })
-        st.dataframe(form_data, width="stretch", hide_index=True)
-    else:
-        st.info("无文本表单字段")
+with tab_detail:
+    for w in form_widgets:
+        w_type = w.get("type", "")
+        w_name = w.get("name", "")
+        w_value = w.get("value", "")
 
-with tab2:
-    approvers = get_approvers_with_roles(detail)
-    if approvers:
-        approver_data = []
-        for a in approvers:
-            a_status = STATUS_DISPLAY.get(a.get("status", ""), a.get("status", ""))
-            approver_data.append({
-                "审批人": a.get("approver_name", ""),
-                "角色": a.get("role") or "—",
-                "状态": a_status,
-            })
-        st.dataframe(approver_data, width="stretch", hide_index=True)
-    else:
-        st.info("无审批人信息")
+        if w_type == "attachmentV2":
+            continue
 
-with tab3:
+        if w_type == "fieldList":
+            with st.expander(f"📋 {w_name}", expanded=True):
+                if isinstance(w_value, list):
+                    for row_item in w_value:
+                        if isinstance(row_item, list):
+                            for item in row_item:
+                                sub_name = item.get("name", "")
+                                sub_val = item.get("value", "")
+                                sub_type = item.get("type", "")
+                                if sub_type == "amount":
+                                    ext = item.get("ext", {})
+                                    capital = ext.get("capitalValue", "")
+                                    cur = ext.get("currency", "CNY")
+                                    val_fmt = f"{sub_val:,.2f}" if isinstance(sub_val, (int, float)) else str(sub_val)
+                                    st.write(f"**{sub_name}**  {val_fmt} {cur}-人民币元")
+                                    if capital:
+                                        st.caption(capital)
+                                else:
+                                    st.write(f"**{sub_name}**  {sub_val}")
+                        else:
+                            st.write(str(row_item))
+            continue
+
+        st.markdown(f"**{w_name}**")
+        st.write(str(w_value))
+        st.divider()
+
+    # attachments
     attachments = extract_attachments(form_widgets)
     if attachments:
         for att in attachments:
             field_name = att.get("field_name", "附件")
-            values = att.get("value", [])
-            st.markdown(f"**{field_name}** ({len(values)} 个文件)")
-            for v in values:
-                st.code(v, language=None)
+            vals = att.get("value", [])
+            st.markdown(f"📎 **{field_name}**")
+            for v in vals:
+                fname = v.rsplit("/", 1)[-1].split("?")[0] if v else "文件"
+                st.caption(fname)
+
+with tab_log:
+    records = []
+
+    # 1) submitter from timeline START event
+    for event in detail.get("timeline", []):
+        if event.get("type") == "START":
+            records.append({
+                "节点名称": "提交",
+                "审批人": _resolve_name(event.get("user_id", ""), user_mapping) or event.get("user_id", ""),
+                "审批结果": "已提交",
+                "审批意见": "",
+                "审批时间": _fmt(str(event.get("create_time", ""))),
+            })
+
+    # 2) current processing tasks
+    for task in detail.get("task_list", []):
+        t_status = task.get("status", "")
+        result = "审批中" if t_status == "PENDING" else STATUS_LABEL.get(t_status, t_status)
+        records.append({
+            "节点名称": task.get("node_name", ""),
+            "审批人": _resolve_name(task.get("user_id", ""), user_mapping) or task.get("user_id", ""),
+            "审批结果": result,
+            "审批意见": "",
+            "审批时间": _fmt(str(task.get("start_time", ""))),
+        })
+
+    # 3) approval history
+    for a in detail.get("approver_list", []):
+        records.append({
+            "节点名称": "",
+            "审批人": a.get("approver_name", ""),
+            "审批结果": STATUS_LABEL.get(a.get("status", ""), a.get("status", "")),
+            "审批意见": a.get("comment", ""),
+            "审批时间": _fmt(str(a.get("approval_time", ""))),
+        })
+
+    # 4) end node
+    end_time_raw = detail.get("end_time", "")
+    if end_time_raw and end_time_raw != "0":
+        records.append({
+            "节点名称": "结束",
+            "审批人": "系统",
+            "审批结果": STATUS_LABEL.get(raw_status, raw_status),
+            "审批意见": "",
+            "审批时间": _fmt(str(end_time_raw)),
+        })
     else:
-        st.info("无附件")
+        records.append({
+            "节点名称": "结束",
+            "审批人": "系统",
+            "审批结果": "未结束",
+            "审批意见": "",
+            "审批时间": "",
+        })
+
+    if records:
+        st.dataframe(
+            records,
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "节点名称": st.column_config.TextColumn("节点名称", width="small"),
+                "审批人": st.column_config.TextColumn("审批人", width="small"),
+                "审批结果": st.column_config.TextColumn("审批结果", width="small"),
+                "审批意见": st.column_config.TextColumn("审批意见", width="medium"),
+                "审批时间": st.column_config.TextColumn("审批时间", width="medium"),
+            },
+        )
+    else:
+        st.info("无审批记录")
