@@ -376,8 +376,8 @@ def render_instance_list():
     select_all = st.checkbox("全选", key="select_all")
 
     hdr = st.columns([3, 2, 1, 1, 1, 1, 0.5])
-    hdr[0].markdown("**审批名称**")
-    hdr[1].markdown("**申请编号**")
+    hdr[0].markdown("**标题**")
+    hdr[1].markdown("**审批单编号**")
     hdr[2].markdown("**状态**")
     hdr[3].markdown("**提交时间**")
     hdr[4].markdown("**完成时间**")
@@ -388,6 +388,7 @@ def render_instance_list():
     selected = set()
     for idx, detail in enumerate(results):
         code = detail.get("instance_code", "")
+        serial = detail.get("serial_number") or code
         raw_status = detail.get("status", "")
         status_text = STATUS_DISPLAY.get(raw_status, raw_status)
         ready = is_ready_for_print(detail)
@@ -397,7 +398,13 @@ def render_instance_list():
         submit_time = _format_datetime(str(detail.get("start_time", "")))
         end_time = _format_datetime(str(detail.get("end_time", ""))) if detail.get("end_time") else "—"
         handler = _current_handler(detail) or "—"
-        title = detail.get("title") or detail.get("approval_name", "无标题")
+        form_widgets = parse_form(detail)
+        form_title = ""
+        for widget in form_widgets:
+            if widget.get("name") == "标题":
+                form_title = widget.get("value", "")
+                break
+        title = form_title or detail.get("approval_name", "无标题")
 
         row = st.columns([3, 2, 1, 1, 1, 1, 0.5])
         checked = row[0].checkbox(
@@ -408,7 +415,7 @@ def render_instance_list():
         if checked:
             selected.add(code)
 
-        row[1].markdown(f"`{code}`")
+        row[1].markdown(f"`{serial}`")
         row[2].markdown(status_text)
         row[3].markdown(submit_time)
         row[4].markdown(end_time)
