@@ -358,6 +358,26 @@ def render_query_panel(approval_code):
                 st.error(f"查询失败: {e}")
 
 
+def _current_handler(detail):
+    approvers = detail.get("approver_list") or []
+    for a in approvers:
+        if a.get("status") == "PENDING":
+            return a.get("approver_name", "")
+    return ""
+
+
+def _parse_department(detail):
+    form_str = detail.get("form", "[]")
+    try:
+        widgets = json.loads(form_str) if isinstance(form_str, str) else form_str
+        for w in widgets:
+            if "部门" in w.get("name", ""):
+                return str(w.get("value", ""))
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return ""
+
+
 def render_instance_list():
     results = st.session_state.query_results
     if not results:
@@ -365,47 +385,61 @@ def render_instance_list():
 
     st.header("📝 审批实例列表")
 
-    # Select all checkbox
     select_all = st.checkbox("全选", key="select_all")
 
-    # Build display data
     display_rows = []
     for idx, detail in enumerate(results):
         code = detail.get("instance_code", "")
-        title = detail.get("title", "无标题")
         raw_status = detail.get("status", "")
         status_text = STATUS_DISPLAY.get(raw_status, raw_status)
-        create_time = _format_datetime(str(detail.get("start_time", "")))
-
         ready = is_ready_for_print(detail)
-        status_label = status_text
         if ready and raw_status == "RUNNING":
-            status_label = "审批完成待出纳办理"
+            status_text = "审批完成待出纳办理"
 
         display_rows.append({
-            "序号": idx + 1,
-            "审批单号": code,
-            "标题": title,
-            "状态": status_label,
-            "提交时间": create_time,
+            "选择": idx + 1,
+            "审批名称": detail.get("title") or detail.get("approval_name", "无标题"),
+            "申请编号": code,
+            "提交人": detail.get("submitter_name", "") or detail.get("applicant_name", "") or "—",
+            "提交人部门": detail.get("department_name", "") or _parse_department(detail) or "—",
+            "状态": status_text,
+            "提交时间": _format_datetime(str(detail.get("start_time", ""))),
+            "完成时间": _format_datetime(str(detail.get("end_time", ""))) if detail.get("end_time") else "—",
+            "当前处理人": _current_handler(detail) or "—",
+            "操作": "📋 详情",
         })
 
-    # Display as dataframe with selectable rows
     if display_rows:
-        st.dataframe(
+        event = st.dataframe(
             display_rows,
             use_container_width=True,
             hide_index=True,
             column_config={
-                "序号": st.column_config.NumberColumn(width="small"),
-                "审批单号": st.column_config.TextColumn(width="medium"),
-                "标题": st.column_config.TextColumn(width="large"),
+                "选择": st.column_config.NumberColumn(width="small"),
+                "审批名称": st.column_config.TextColumn(width="large"),
+                "申请编号": st.column_config.TextColumn(width="medium"),
+                "提交人": st.column_config.TextColumn(width="small"),
+                "提交人部门": st.column_config.TextColumn(width="small"),
                 "状态": st.column_config.TextColumn(width="small"),
                 "提交时间": st.column_config.TextColumn(width="small"),
+                "完成时间": st.column_config.TextColumn(width="small"),
+                "当前处理人": st.column_config.TextColumn(width="small"),
+                "操作": st.column_config.TextColumn(width="small"),
             },
+            on_select="rerun",
+            selection_mode="single-row",
+            key="instance_table",
         )
 
-    # Individual selection + detail buttons
+        selected_rows = event.selection.rows if event.selection else []
+        if selected_rows:
+            row_idx = selected_rows[0]
+            selected_code = display_rows[row_idx]["申请编号"]
+            st.session_state.detail_code = selected_code
+            st.rerun()
+
+    # Checkbox selection for batch operations
+    st.subheader("选择实例（批量操作）")
     selected = set()
     for idx, detail in enumerate(results):
         code = detail.get("instance_code", "")
@@ -416,19 +450,13 @@ def render_instance_list():
         if ready and raw_status == "RUNNING":
             status_text = "审批完成待出纳办理"
 
-        c1, c2 = st.columns([20, 1])
-        label = f"**{idx + 1}.** {title} — {status_text}"
-        checked = c1.checkbox(
-            label,
+        checked = st.checkbox(
+            f"**{idx + 1}.** {title} — {status_text}",
             value=select_all or code in st.session_state.selected_instances,
             key=f"sel_{code}",
         )
         if checked:
             selected.add(code)
-
-        if c2.button("📋", key=f"det_{code}", help="查看详情"):
-            st.session_state.detail_code = code
-            st.rerun()
 
     st.session_state.selected_instances = selected
 
