@@ -11,10 +11,8 @@ Write-Host ""
 # --- 1. Check .env ---
 if (-not (Test-Path ".env")) {
     Write-Host "[ERROR] .env file not found" -ForegroundColor Red
-    Write-Host "Please copy .env.example to .env and fill in credentials:" -ForegroundColor Yellow
-    Write-Host "  FEISHU_APP_ID=your_app_id" -ForegroundColor Yellow
-    Write-Host "  FEISHU_APP_SECRET=your_app_secret" -ForegroundColor Yellow
-    Write-Host "  FEISHU_APPROVAL_CODE=your_approval_code" -ForegroundColor Yellow
+    Write-Host "Copy .env.example to .env and fill in credentials:" -ForegroundColor Yellow
+    Write-Host "  FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_APPROVAL_CODE" -ForegroundColor Yellow
     Read-Host "Press Enter to exit"
     exit 1
 }
@@ -29,26 +27,26 @@ elseif (Test-Path "venv\Scripts\python.exe") {
     Write-Host "[venv] Found virtual environment: venv" -ForegroundColor Green
 }
 else {
-    # No venv found, try system python
     python --version 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
         $_py = "python"
         Write-Host "[python] Using system Python (no venv found)" -ForegroundColor Yellow
-    } else {
-        # Try to create venv with uv
+    }
+    else {
         $uv = Get-Command uv -ErrorAction SilentlyContinue
         if ($uv) {
             Write-Host "[venv] Creating uv virtual environment..." -ForegroundColor Green
             uv venv
-        } else {
+        }
+        else {
             Write-Host "[ERROR] Neither Python nor uv found on PATH" -ForegroundColor Red
             Read-Host "Press Enter to exit"
             exit 1
         }
         if (Test-Path ".venv\Scripts\python.exe") {
             $_py = ".venv\Scripts\python.exe"
-            Write-Host "[venv] Created: .venv" -ForegroundColor Green
-        } else {
+        }
+        else {
             Write-Host "[ERROR] Failed to create virtual environment" -ForegroundColor Red
             Read-Host "Press Enter to exit"
             exit 1
@@ -56,13 +54,32 @@ else {
     }
 }
 
-# --- 3. Install dependencies ---
+# --- 3. Pick installer (uv pip first, then python -m pip) ---
+$uv = Get-Command uv -ErrorAction SilentlyContinue
+if ($uv) {
+    $_install = "uv pip install -r requirements.txt --index-url https://pypi.tuna.tsinghua.edu.cn/simple"
+    Write-Host "[deps] Using uv pip (Tsinghua mirror)" -ForegroundColor Green
+}
+else {
+    # uv not available, check if pip exists in the venv
+    & $_py -m pip --version 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] Neither uv nor pip is available" -ForegroundColor Red
+        Write-Host "Install uv: https://docs.astral.sh/uv/getting-started/installation/" -ForegroundColor Yellow
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+    $_install = "$_py -m pip install -r requirements.txt --index-url https://pypi.tuna.tsinghua.edu.cn/simple"
+    Write-Host "[deps] Using pip (Tsinghua mirror)" -ForegroundColor Green
+}
+
+# --- 4. Install dependencies ---
 Write-Host "[deps] Checking..." -ForegroundColor Green
 
 & $_py -c "import streamlit, requests, dotenv, openpyxl" 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "[deps] Installing (Tsinghua mirror)..." -ForegroundColor Yellow
-    & $_py -m pip install -r requirements.txt --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+    Write-Host "[deps] Installing..." -ForegroundColor Yellow
+    Invoke-Expression $_install
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[ERROR] Dependency installation failed" -ForegroundColor Red
         Read-Host "Press Enter to exit"
@@ -71,7 +88,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "[deps] Ready" -ForegroundColor Green
 
-# --- 4. Launch Streamlit ---
+# --- 5. Launch Streamlit ---
 Write-Host ""
 Write-Host "Starting Streamlit..." -ForegroundColor Green
 Write-Host "Browser: http://localhost:8501  |  Ctrl+C to stop" -ForegroundColor Cyan
