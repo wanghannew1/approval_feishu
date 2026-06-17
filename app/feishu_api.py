@@ -293,6 +293,7 @@ def extract_attachments(form_widgets: list[dict]) -> list[dict]:
                 value = [value] if value else []
             attachments.append({
                 "field_name": widget.get("name", "附件"),
+                "ext": widget.get("ext", ""),
                 "value": value,
             })
     return attachments
