@@ -38,6 +38,7 @@ load_dotenv()
 # Constants
 # ---------------------------------------------------------------------------
 DEFINITIONS_FILE = Path(__file__).parent / "approval_definitions.json"
+SETTINGS_FILE = Path(__file__).parent / "settings.json"
 
 _DEFAULT_DEFINITIONS = {
     "1CF34ABB-781C-40B0-9A4F-3CC416612423": "项目人员工资发放审批单（系统工资单）",
@@ -55,6 +56,27 @@ def _load_definitions():
 def _save_definitions(data):
     with open(DEFINITIONS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _load_settings():
+    try:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_settings(data):
+    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _get_credentials():
+    settings = _load_settings()
+    return (
+        settings.get("app_id") or os.getenv("FEISHU_APP_ID", ""),
+        settings.get("app_secret") or os.getenv("FEISHU_APP_SECRET", ""),
+    )
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -174,6 +196,29 @@ def render_sidebar():
                 elif code in definitions:
                     st.error("该 definitionCode 已存在")
 
+        st.divider()
+
+        with st.expander("⚙️ 设置"):
+            settings = _load_settings()
+            app_id_val = st.text_input(
+                "App ID",
+                value=settings.get("app_id", os.getenv("FEISHU_APP_ID", "")),
+                type="password",
+                key="settings_app_id",
+            )
+            app_secret_val = st.text_input(
+                "App Secret",
+                value=settings.get("app_secret", os.getenv("FEISHU_APP_SECRET", "")),
+                type="password",
+                key="settings_app_secret",
+            )
+            if st.button("保存设置", key="save_settings", use_container_width=True):
+                settings["app_id"] = app_id_val.strip()
+                settings["app_secret"] = app_secret_val.strip()
+                _save_settings(settings)
+                st.session_state.token = None
+                st.success("已保存")
+
     if st.session_state.selected_definition not in definitions and definitions:
         st.session_state.selected_definition = next(iter(definitions))
 
@@ -211,8 +256,7 @@ def render_query_panel(approval_code):
         )
 
     if st.button("🔍 查询", use_container_width=True, type="primary"):
-        app_id = os.getenv("FEISHU_APP_ID", "")
-        app_secret = os.getenv("FEISHU_APP_SECRET", "")
+        app_id, app_secret = _get_credentials()
 
         if not app_id or not app_secret:
             st.error("请填写 App ID 和 App Secret")
@@ -391,7 +435,8 @@ def render_batch_actions():
 
 
 def _handle_download():
-    token = _get_token(os.getenv("FEISHU_APP_ID", ""), os.getenv("FEISHU_APP_SECRET", ""))
+    app_id, app_secret = _get_credentials()
+    token = _get_token(app_id, app_secret)
     if not token:
         return
 
@@ -446,7 +491,8 @@ def _handle_download():
 
 
 def _handle_sign_and_print():
-    token = _get_token(os.getenv("FEISHU_APP_ID", ""), os.getenv("FEISHU_APP_SECRET", ""))
+    app_id, app_secret = _get_credentials()
+    token = _get_token(app_id, app_secret)
     if not token:
         return
 
