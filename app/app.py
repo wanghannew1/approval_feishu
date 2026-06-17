@@ -410,7 +410,7 @@ def render_instance_list():
         })
 
     if display_rows:
-        event = st.dataframe(
+        st.dataframe(
             display_rows,
             use_container_width=True,
             hide_index=True,
@@ -426,17 +426,19 @@ def render_instance_list():
                 "当前处理人": st.column_config.TextColumn(width="small"),
                 "操作": st.column_config.TextColumn(width="small"),
             },
-            on_select="rerun",
-            selection_mode="single-row",
-            key="instance_table",
         )
 
-        selected_rows = event.selection.rows if event.selection else []
-        if selected_rows:
-            row_idx = selected_rows[0]
-            selected_code = display_rows[row_idx]["申请编号"]
-            st.session_state.detail_code = selected_code
-            st.rerun()
+        # Detail picker — works across all Streamlit versions
+        options = {f"{r['审批名称']} ({r['申请编号']})": r["申请编号"] for r in display_rows}
+        selected_label = st.selectbox(
+            "选择审批单查看详情",
+            options=["—"] + list(options.keys()),
+            key="detail_picker",
+        )
+        if selected_label != "—" and selected_label in options:
+            if st.button("📋 查看详情", key="open_detail_btn", use_container_width=True):
+                st.session_state.detail_code = options[selected_label]
+                st.rerun()
 
     # Checkbox selection for batch operations
     st.subheader("选择实例（批量操作）")
