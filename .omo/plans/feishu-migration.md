@@ -1333,7 +1333,7 @@ print('OK: uses Feishu API')
   - Files: `logger_config.py, payroll_sheet_config.json`
   - Pre-commit: `python -c "from logger_config import get_logger"`
 
-- [ ] 14. Streamlit app.py 完整UI构建
+- [x] 14. Streamlit app.py 完整UI构建
 
   **What to do**:
   - 基于PaySignPrinter/app.py重构为飞书版
