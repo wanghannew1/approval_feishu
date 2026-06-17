@@ -157,15 +157,6 @@ if attachments:
 # ── 审批记录 ──
 st.divider()
 
-# anchor + scroll trigger
-st.markdown('<span id="records-section"></span>', unsafe_allow_html=True)
-
-if tab_select == "审批记录":
-    st.markdown(
-        "<script>setTimeout(function(){var e=document.getElementById('records-section');e&&e.scrollIntoView({behavior:'smooth',block:'start'});},100);</script>",
-        unsafe_allow_html=True,
-    )
-
 st.subheader("审批记录")
 
 records = []
