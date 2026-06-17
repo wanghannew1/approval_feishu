@@ -15,54 +15,7 @@ from app.cache_manager import (
     BaseFileCache,
     DownloadURLCache,
     InstanceDetailCache,
-    TokenCache,
 )
-
-
-class TestTokenCache:
-    """Test suite for TokenCache."""
-
-    def test_token_cache_init(self):
-        """Test TokenCache initialization."""
-        cache = TokenCache()
-        assert cache.cache_path.name == ".token_cache.json"
-
-    def test_token_cache_custom_path(self, tmp_path):
-        """Test TokenCache with custom path."""
-        cache_path = tmp_path / "custom_cache.json"
-        cache = TokenCache(cache_path=str(cache_path))
-        assert str(cache.cache_path) == str(cache_path)
-
-    def test_load_returns_none_when_empty(self, tmp_path):
-        """Test that load returns None for missing/expired cache."""
-        cache_path = tmp_path / "missing.json"
-        cache = TokenCache(cache_path=str(cache_path))
-        result = cache.load()
-        assert result is None
-
-    def test_clear_does_not_raise(self, tmp_path):
-        """Test that clear handles missing cache gracefully."""
-        cache_path = tmp_path / "missing.json"
-        cache = TokenCache(cache_path=str(cache_path))
-        cache.clear()  # Should not raise
-
-    def test_save_and_load(self, tmp_path):
-        """Test saving and loading a valid token."""
-        cache_path = tmp_path / "token.json"
-        cache = TokenCache(cache_path=str(cache_path))
-        cache.save(token="test_token_123", expire_in=3600)
-        result = cache.load()
-        assert result is not None
-        assert result["token"] == "test_token_123"
-        assert result["expires_at"] > time.time()
-
-    def test_load_returns_none_when_expired(self, tmp_path):
-        """Test that load returns None for expired token."""
-        cache_path = tmp_path / "token.json"
-        cache = TokenCache(cache_path=str(cache_path))
-        cache.save(token="test_token_123", expire_in=-1)
-        result = cache.load()
-        assert result is None
 
 
 class TestBaseFileCache:

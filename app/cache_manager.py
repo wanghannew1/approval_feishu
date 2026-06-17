@@ -16,67 +16,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 
-class TokenCache:
-    """
-    Manages persistent storage of Feishu tenant access tokens.
-    """
-
-    def __init__(self, cache_path: str = ".token_cache.json"):
-        """
-        Initialize the token cache.
-
-        Args:
-            cache_path: Path to the cache file.
-        """
-        self.cache_path = Path(cache_path)
-
-    def load(self) -> Optional[dict]:
-        """
-        Load cached token data if valid.
-
-        Returns:
-            Cached token data or None if expired/missing.
-        """
-        if not self.cache_path.exists():
-            return None
-        try:
-            with self.cache_path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-            expires_at = data.get("expires_at", 0)
-            if expires_at < time.time():
-                return None
-            return data
-        except (json.JSONDecodeError, KeyError, OSError):
-            return None
-
-    def save(self, token: str, expire_in: int) -> None:
-        """
-        Save token to cache with expiration.
-
-        Args:
-            token: Tenant access token.
-            expire_in: Seconds until token expires.
-        """
-        data = {
-            "token": token,
-            "expires_at": time.time() + expire_in,
-            "cached_at": time.time(),
-        }
-        try:
-            with self.cache_path.open("w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except OSError:
-            pass
-
-    def clear(self) -> None:
-        """Remove all cached tokens."""
-        if self.cache_path.exists():
-            try:
-                self.cache_path.unlink()
-            except OSError:
-                pass
-
-
 class BaseFileCache:
     """
     Base class for file-based JSON caches with TTL and statistics.

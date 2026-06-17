@@ -19,7 +19,7 @@ from .batch_processor import (
     is_ready_for_print,
     process_single_approval,
 )
-from .cache_manager import DownloadURLCache, InstanceDetailCache, TokenCache
+from .cache_manager import DownloadURLCache, InstanceDetailCache
 from .feishu_api import (
     download_file,
     extract_attachments,
@@ -27,7 +27,6 @@ from .feishu_api import (
     get_tenant_token,
     list_instances,
     parse_form,
-    query_instances,
 )
 
 load_dotenv()
@@ -54,8 +53,6 @@ if "instance_details_cache" not in st.session_state:
     st.session_state.instance_details_cache = {}
 
 # Cache managers (persisted across reruns via session_state)
-if "token_cache" not in st.session_state:
-    st.session_state.token_cache = TokenCache()
 if "url_cache" not in st.session_state:
     st.session_state.url_cache = DownloadURLCache()
 if "detail_cache" not in st.session_state:
@@ -153,7 +150,6 @@ def render_sidebar() -> dict:
             url_cache.clear()
             detail_cache.clear()
             st.session_state.token = None
-            st.session_state.token_cache.clear()
             st.session_state.instance_details_cache = {}
             st.success("缓存已清除")
             st.rerun()
