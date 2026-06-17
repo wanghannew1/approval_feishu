@@ -70,24 +70,35 @@ def _waiting_time(ts_str):
         return ""
 
 
-ROLE_MAPPING_PATH = _PROJECT_ROOT / "role_mapping.json"
-WORKFLOW_NODES = ["提交", "业务审核", "部门负责人", "财务", "总经理", "出纳办理", "结束"]
+def _load_role_mapping_file():
+    try:
+        with open(ROLE_MAPPING_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
 
 
 def _load_workflow_order():
     try:
-        with open(ROLE_MAPPING_PATH, "r", encoding="utf-8") as f:
-            role_mapping = json.load(f)
+        with open(WORKFLOW_ORDER_PATH, "r", encoding="utf-8") as f:
+            order = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        role_mapping = {}
-    nodes = [k for k in role_mapping if not k.startswith("_")]
-    order = {}
-    for i, node in enumerate(nodes):
-        order[node] = i + 1
-    for i, node in enumerate(WORKFLOW_NODES):
-        if node not in order:
-            order[node] = len(order) + i
-    return order
+        order = {
+            "提交": 1, "业务审核": 2, "部长签字": 3,
+            "财务审核": 4, "总经理签字": 5, "出纳办理": 6, "结束": 99,
+        }
+    return {k: v for k, v in order.items() if not k.startswith("_")}
+
+
+def _get_sort_key(node_name):
+    role_mapping = _load_role_mapping_file()
+    display_name = role_mapping.get(node_name, node_name)
+    order = _load_workflow_order()
+    return order.get(node_name, order.get(display_name, 999))
+
+
+ROLE_MAPPING_PATH = _PROJECT_ROOT / "role_mapping.json"
+WORKFLOW_ORDER_PATH = _PROJECT_ROOT / "workflow_order.json"
 
 
 # ── page setup ───────────────────────────────────────────────────────────────
@@ -244,7 +255,7 @@ for task in detail.get("task_list", []):
         "审批结果": result,
         "审批意见": "",
         "审批时间": task_time,
-        "_order": workflow_order.get(node, 99),
+        "_order": _get_sort_key(node),
     })
 
 for a in detail.get("approver_list", []):
