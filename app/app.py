@@ -137,6 +137,8 @@ if "instance_details_cache" not in st.session_state:
 if "selected_definition" not in st.session_state:
     # Default to the payroll sheet approval
     st.session_state.selected_definition = "1CF34ABB-781C-40B0-9A4F-3CC416612423"
+if "signed_files" not in st.session_state:
+    st.session_state.signed_files = []
 if "detail_code" not in st.session_state:
     st.session_state.detail_code = None
 
@@ -519,6 +521,7 @@ def _handle_download_and_sign():
     total = len(selected)
     progress = st.progress(0, text=f"下载及签名 0/{total}")
 
+    signed_files = []
     success_count = 0
     total_downloaded = 0
     total_signed = 0
@@ -535,7 +538,8 @@ def _handle_download_and_sign():
             if result["success"]:
                 success_count += 1
                 total_downloaded += len(result.get("downloaded", []))
-                total_signed += len(result.get("signed", []))
+                total_signed += len(result.get("signed_files", []))
+                signed_files.extend(result.get("signed_files", []))
                 progress.progress(
                     (i + 1) / total,
                     text=f"✅ {result['title'][:20]}: {result['message']}",
@@ -556,20 +560,20 @@ def _handle_download_and_sign():
                 text=f"❌ {code[:8]}...: {e}",
             )
 
+    st.session_state.signed_files = signed_files
     progress.empty()
     st.success(f"下载及签名完成：成功 {success_count}/{total}，共下载 {total_downloaded} 个表，签名 {total_signed} 处")
 
 
 def _handle_print():
     from app.batch_processor import print_file
-    settings = _load_settings()
-    save_dir = Path(settings.get("download_path", "./downloads"))
-    if not save_dir.exists():
-        st.warning("下载目录不存在，请先下载及签名")
+    signed_files = st.session_state.get("signed_files", [])
+    if not signed_files:
+        st.warning("没有已签名的文件，请先执行「下载及签名」")
         return
-    xlsx_files = sorted(save_dir.rglob("signed_*.xlsx"))
+    xlsx_files = [Path(f) for f in signed_files if Path(f).exists()]
     if not xlsx_files:
-        st.warning("未找到已签名的文件")
+        st.warning("已签名的文件不存在，请重新执行「下载及签名」")
         return
     for f in xlsx_files:
         try:
