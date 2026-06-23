@@ -256,23 +256,14 @@ def render_sidebar():
 
         with st.expander("⚙️ 设置"):
             settings = _load_settings()
-            app_id_val = st.text_input(
-                "App ID",
-                value=settings.get("app_id", os.getenv("FEISHU_APP_ID", "")),
-                type="password",
-                key="settings_app_id",
-            )
-            app_secret_val = st.text_input(
-                "App Secret",
-                value=settings.get("app_secret", os.getenv("FEISHU_APP_SECRET", "")),
-                type="password",
-                key="settings_app_secret",
+            download_path = st.text_input(
+                "下载路径",
+                value=settings.get("download_path", "./downloads"),
+                key="settings_download_path",
             )
             if st.button("保存设置", key="save_settings", width="stretch"):
-                settings["app_id"] = app_id_val.strip()
-                settings["app_secret"] = app_secret_val.strip()
+                settings["download_path"] = download_path.strip() or "./downloads"
                 _save_settings(settings)
-                st.session_state.token = None
                 st.success("已保存")
 
         with st.expander("📇 通讯录导入"):
@@ -511,12 +502,18 @@ def render_batch_actions():
     if st.button("📥 下载及签名", width="stretch"):
         _handle_download_and_sign()
 
+    if st.button("🖨️ 打印", width="stretch"):
+        _handle_print()
+
 
 def _handle_download_and_sign():
     app_id, app_secret = _get_credentials()
     token = _get_token(app_id, app_secret)
     if not token:
         return
+
+    settings = _load_settings()
+    save_dir = settings.get("download_path", "./downloads")
 
     selected = st.session_state.selected_instances
     total = len(selected)
@@ -531,7 +528,7 @@ def _handle_download_and_sign():
                 code,
                 token,
                 {
-                    "save_dir": "./downloads",
+                    "save_dir": save_dir,
                     "signatures_dir": "./signatures",
                 },
             )
@@ -562,6 +559,24 @@ def _handle_download_and_sign():
     progress.empty()
     st.success(f"下载及签名完成：成功 {success_count}/{total}，共下载 {total_downloaded} 个表，签名 {total_signed} 处")
 
+
+def _handle_print():
+    from app.batch_processor import print_file
+    settings = _load_settings()
+    save_dir = Path(settings.get("download_path", "./downloads"))
+    if not save_dir.exists():
+        st.warning("下载目录不存在，请先下载及签名")
+        return
+    xlsx_files = sorted(save_dir.rglob("signed_*.xlsx"))
+    if not xlsx_files:
+        st.warning("未找到已签名的文件")
+        return
+    for f in xlsx_files:
+        try:
+            print_file(f)
+            st.success(f"已打印: {f.name}")
+        except Exception as e:
+            st.error(f"打印失败 {f.name}: {e}")
 
 def main():
     Path("./signatures").mkdir(exist_ok=True)

@@ -105,6 +105,9 @@ class TestFullWorkflow:
                         {"approver_name": "部门负责人", "status": "APPROVED", "comment": "同意"},
                         {"approver_name": "财务", "status": "APPROVED", "comment": "同意"},
                     ],
+                    "task_list": [
+                        {"node_name": "出纳办理", "status": "PENDING"},
+                    ],
                 },
             },
         )

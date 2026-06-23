@@ -220,9 +220,11 @@ if attachments:
     for att in attachments:
         field_name = att.get("field_name", "附件")
         vals = att.get("value", [])
+        ext_str = att.get("ext", "")
+        fnames = [f.strip() for f in ext_str.split(",") if f.strip()] if ext_str else []
         st.markdown(f"📎 **{field_name}**")
-        for v in vals:
-            fname = att.get("ext", "") or v.rsplit("/", 1)[-1].split("?")[0] if v else "文件"
+        for i, v in enumerate(vals):
+            fname = fnames[i] if i < len(fnames) else (v.rsplit("/", 1)[-1].split("?")[0] if v else "文件")
             st.markdown(f"📥 [{fname}]({v})")
 
 # ── 审批记录 ──

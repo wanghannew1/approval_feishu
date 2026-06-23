@@ -129,14 +129,9 @@ def _get_role_mapping(path: Optional[Path] = None) -> Dict[str, str]:
 
 def is_ready_for_print(details: dict) -> bool:
     """
-    Check if all mandatory roles in the approval have APPROVED status.
-
-    Args:
-        details: Instance detail dict containing "approver_list".
-
-    Returns:
-        True if every mandatory role (from payroll_sheet_config.json)
-        has at least one APPROVED approver mapped to it.
+    Check if the approval is ready for the cashier to process.
+    All mandatory signature roles must be approved, and the current
+    pending task node must be \"出纳办理\" (cashier step).
     """
     mandatory_roles = _get_mandatory_roles()
     if not mandatory_roles:
@@ -151,7 +146,19 @@ def is_ready_for_print(details: dict) -> bool:
             if role:
                 approved_roles.add(role)
 
-    return mandatory_roles.issubset(approved_roles)
+    for task in details.get("task_list", []):
+        if task.get("status") in ("APPROVED", "DONE"):
+            role = role_mapping.get(task.get("node_name", ""))
+            if role:
+                approved_roles.add(role)
+
+    if not mandatory_roles.issubset(approved_roles):
+        return False
+
+    for task in details.get("task_list", []):
+        if task.get("status") == "PENDING" and task.get("node_name") == "出纳办理":
+            return True
+    return False
 
 
 def is_approval_passed(details: dict) -> bool:

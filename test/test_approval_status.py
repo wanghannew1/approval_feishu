@@ -25,12 +25,15 @@ class TestIsReadyForPrint:
     """Test suite for is_ready_for_print function."""
 
     def test_is_ready_for_print_all_approved(self):
-        """All mandatory roles APPROVED -> True."""
+        """All mandatory roles APPROVED + 出纳办理 pending -> True."""
         details = {
             "approver_list": [
                 {"approver_name": "总经理", "status": "APPROVED", "comment": "同意"},
                 {"approver_name": "部门负责人", "status": "APPROVED", "comment": "同意"},
                 {"approver_name": "财务", "status": "APPROVED", "comment": "同意"},
+            ],
+            "task_list": [
+                {"node_name": "出纳办理", "status": "PENDING"},
             ]
         }
         assert is_ready_for_print(details) is True

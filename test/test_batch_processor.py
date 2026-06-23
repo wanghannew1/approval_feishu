@@ -188,6 +188,9 @@ class TestIsReadyForPrint:
             "approver_list": [
                 {"approver_name": "张三", "status": "APPROVED"},
                 {"approver_name": "李四", "status": "APPROVED"},
+            ],
+            "task_list": [
+                {"node_name": "出纳办理", "status": "PENDING"},
             ]
         }
         assert is_ready_for_print(details) is True
