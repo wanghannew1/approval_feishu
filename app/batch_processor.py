@@ -459,18 +459,14 @@ def _hide_columns(ws):
 def _prevent_signature_page_split(ws, positions: Dict[str, Tuple[int, int]]):
     """
     防止签名图片行被分页线切成两半：
-    1. 将签名行高度设为与图片匹配（60px ≈ 45pt）
-    2. 在签名区域前插入分页符
+    将签名行高度设为与图片匹配（60px ≈ 45pt），确保图片完整容纳在一行内。
     """
-    from openpyxl.worksheet.pagebreak import Break
     sig_rows = sorted({r for r, _ in positions.values()})
     if not sig_rows:
         return
     for r in sig_rows:
         ws.row_dimensions[r].height = 45
-    first_sig_row = sig_rows[0]
-    ws.row_breaks.append(Break(id=first_sig_row - 1))
-    logger.info(f"[PAGE] 签名行高度调整为45pt，在{first_sig_row - 1}行后插入分页符 ({len(sig_rows)}个签名行)")
+    logger.info(f"[PAGE] 签名行高度调整为45pt ({len(sig_rows)}个签名行)")
 
 
 def adjust_excel_for_print(ws, signature_positions=None) -> None:
