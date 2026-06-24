@@ -444,7 +444,6 @@ class TestDownloadFile:
             assert Path(result).name == "url_file.txt"
             mock_get.assert_called_once_with(
                 "https://example.com/file",
-                headers=get_auth_headers(mock_token),
                 stream=True,
             )
 

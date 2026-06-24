@@ -326,10 +326,14 @@ def download_file(token: str, file_token_or_url: str, save_dir: str) -> str:
 
     if file_token_or_url.startswith("http"):
         url = file_token_or_url
+        headers = None
+        resp = requests.get(url, stream=True)
+        if resp.status_code == 401:
+            resp = requests.get(url, headers=get_auth_headers(token), stream=True)
     else:
         url = DRIVE_DOWNLOAD_URL.format(file_token=file_token_or_url)
-
-    resp = requests.get(url, headers=headers, stream=True)
+        headers = get_auth_headers(token)
+        resp = requests.get(url, headers=headers, stream=True)
 
     if resp.status_code >= 400:
         raise RuntimeError(
