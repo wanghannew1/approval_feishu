@@ -299,13 +299,33 @@ def extract_attachments(form_widgets: list[dict]) -> list[dict]:
     return attachments
 
 
+def _extract_file_token_from_url(url: str) -> Optional[str]:
+    """
+    Extract file_token from a Feishu pre-signed attachment URL.
+    
+    Feishu attachment URLs look like:
+    https://internal-api.feishu.cn/space/api/box/stream/download/all/boxcnXXXXX/?...
+    
+    Returns the file_token (e.g. "boxcnXXXXX") or None.
+    """
+    if not ("feishu.cn" in url or "larksuite.com" in url):
+        return None
+    # Match patterns like: /all/boxcnXXXXX/ or /cover/boxcnXXXXX/
+    match = re.search(r"/([a-zA-Z0-9]{15,})[/?]", url)
+    if match:
+        return match.group(1)
+    return None
+
+
 def download_file(token: str, file_token_or_url: str, save_dir: str) -> str:
     """
     Download a file from Feishu Drive.
 
     Auto-detects whether the input is a direct URL or a file_token.
-    If it starts with "http", downloads directly from the URL.
-    Otherwise, uses the Feishu Drive API download endpoint.
+    If it starts with "http" and is a Feishu domain, extracts the file_token
+    from the URL and uses the Drive API (tenant-token based, works regardless
+    of who is the current approval handler).
+    Otherwise, uses the URL directly.
 
     Extracts the filename from the Content-Disposition header and
     URL-decodes it to support Chinese characters.
@@ -322,18 +342,18 @@ def download_file(token: str, file_token_or_url: str, save_dir: str) -> str:
     Raises:
         RuntimeError: If the download fails (4xx/5xx status).
     """
-    headers = get_auth_headers(token)
-
     if file_token_or_url.startswith("http"):
-        url = file_token_or_url
-        headers = None
-        resp = requests.get(url, stream=True)
-        if resp.status_code == 401:
+        file_token = _extract_file_token_from_url(file_token_or_url)
+        if file_token:
+            url = DRIVE_DOWNLOAD_URL.format(file_token=file_token)
             resp = requests.get(url, headers=get_auth_headers(token), stream=True)
+        else:
+            resp = requests.get(file_token_or_url, stream=True)
+            if resp.status_code == 401:
+                resp = requests.get(file_token_or_url, headers=get_auth_headers(token), stream=True)
     else:
         url = DRIVE_DOWNLOAD_URL.format(file_token=file_token_or_url)
-        headers = get_auth_headers(token)
-        resp = requests.get(url, headers=headers, stream=True)
+        resp = requests.get(url, headers=get_auth_headers(token), stream=True)
 
     if resp.status_code >= 400:
         raise RuntimeError(
