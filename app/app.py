@@ -463,6 +463,17 @@ def _render_salary_details(form_widgets):
             col_names = [c for c in all_columns if c in rows_data[0]]
             table_data = [{c: rd.get(c, "") for c in col_names} for rd in rows_data]
 
+            def _is_zero(v):
+                if not v or v in ("—", "-"):
+                    return True
+                try:
+                    return float(v.replace(",", "")) == 0
+                except (ValueError, AttributeError):
+                    return False
+
+            col_names = [c for c in col_names if any(not _is_zero(rd.get(c, "")) for rd in table_data)]
+            table_data = [{c: rd[c] for c in col_names} for rd in table_data]
+
             ext_items = w.get("ext")
             if isinstance(ext_items, list) and ext_items:
                 summary = {}
