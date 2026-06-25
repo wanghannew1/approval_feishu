@@ -175,15 +175,6 @@ def _ms_timestamp(dt: datetime) -> str:
     return str(int(dt.timestamp() * 1000))
 
 
-def _format_datetime(ts_str: str) -> str:
-    """Format a millisecond timestamp string to readable datetime."""
-    try:
-        ts = int(ts_str) / 1000
-        return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
-    except (ValueError, TypeError):
-        return ts_str
-
-
 def render_sidebar():
     definitions = _load_definitions()
 
@@ -426,6 +417,104 @@ def _on_select_all_change():
     } if is_all else set()
 
 
+def _render_salary_details(form_widgets):
+    """Render salary breakdown details from form widgets in an expander."""
+    has_content = False
+
+    for w in form_widgets:
+        w_type = w.get("type", "")
+        w_name = w.get("name", "")
+        w_value = w.get("value", "")
+
+        if w_type == "attachmentV2":
+            continue
+
+        if w_type == "fieldList":
+            has_content = True
+            st.markdown(f"**📋 {w_name}**")
+            if not isinstance(w_value, list) or not w_value:
+                st.caption("无数据")
+                continue
+
+            id_to_name = {}
+            all_columns = []
+            rows_data = []
+            for row_item in w_value:
+                if not isinstance(row_item, list):
+                    continue
+                row_dict = {}
+                for item in row_item:
+                    name = item.get("name", "")
+                    val = item.get("value", "")
+                    itype = item.get("type", "")
+                    item_id = item.get("id", "")
+                    if item_id and item_id not in id_to_name:
+                        id_to_name[item_id] = name
+                        all_columns.append(name)
+                    if itype == "amount" and isinstance(val, (int, float)):
+                        row_dict[name] = f"{val:,.2f}"
+                    else:
+                        row_dict[name] = str(val) if val else ""
+                rows_data.append(row_dict)
+
+            if not rows_data:
+                continue
+
+            col_names = [c for c in all_columns if c in rows_data[0]]
+            table_data = [{c: rd.get(c, "") for c in col_names} for rd in rows_data]
+
+            ext_items = w.get("ext")
+            if isinstance(ext_items, list) and ext_items:
+                summary = {}
+                for ei in ext_items:
+                    eid = ei.get("id", "")
+                    name = id_to_name.get(eid, eid)
+                    val = ei.get("value", "")
+                    if ei.get("type") == "amount" and val:
+                        try:
+                            summary[name] = f"{float(val):,.2f}"
+                        except ValueError:
+                            summary[name] = val
+                    elif val:
+                        summary[name] = str(val)
+                if summary:
+                    summary_row = {}
+                    for c in col_names:
+                        if c in summary:
+                            summary_row[c] = summary[c]
+                        elif c == col_names[0]:
+                            summary_row[c] = "**汇总**"
+                        else:
+                            summary_row[c] = ""
+                    table_data.append(summary_row)
+
+            st.dataframe(table_data, width="stretch", hide_index=True)
+            continue
+
+        if w_type not in ("text", "number", "textarea", "date", "select", "amount"):
+            continue
+        if w_name in ("标题", "申请人", "申请日期"):
+            continue
+
+        has_content = True
+        st.markdown(f"**{w_name}**")
+        st.caption(str(w_value) if w_value else "—")
+
+    for w in form_widgets:
+        if w.get("type") == "attachmentV2":
+            vals = w.get("value", [])
+            if vals:
+                has_content = True
+                ext_str = w.get("ext", "")
+                fnames = [f.strip() for f in ext_str.split(",") if f.strip()] if ext_str else []
+                if len(fnames) != len(vals):
+                    fnames = [v.rsplit("/", 1)[-1].split("?")[0] if v else "文件" for v in vals]
+                st.markdown(f"📎 **{w.get('name', '附件')}**：{', '.join(fnames)}")
+
+    if not has_content:
+        st.caption("无薪酬明细数据")
+
+
 def render_instance_list():
     results = st.session_state.query_results
     if not results:
@@ -435,15 +524,13 @@ def render_instance_list():
 
     select_all = st.checkbox("全选", key="select_all", on_change=_on_select_all_change)
 
-    hdr = st.columns([3, 2, 1, 1, 1, 1, 1, 0.5])
+    hdr = st.columns([3, 2, 1, 1, 1, 0.5])
     hdr[0].markdown("**标题**")
     hdr[1].markdown("**审批单编号**")
     hdr[2].markdown("**状态**")
     hdr[3].markdown("**提交人**")
-    hdr[4].markdown("**提交时间**")
-    hdr[5].markdown("**完成时间**")
-    hdr[6].markdown("**当前处理人**")
-    hdr[7].markdown("**详情**")
+    hdr[4].markdown("**当前处理人**")
+    hdr[5].markdown("**详情**")
     st.divider()
 
     selected = set()
@@ -456,9 +543,6 @@ def render_instance_list():
         if ready and raw_status == "RUNNING":
             status_text = "审批完成待出纳办理"
 
-        submit_time = _format_datetime(str(detail.get("start_time", "")))
-        end_time_raw = detail.get("end_time", "")
-        end_time = _format_datetime(str(end_time_raw)) if end_time_raw and end_time_raw != "0" else "—"
         user_mapping = _load_user_mapping()
         submitter_raw = detail.get("user_id", "")
         submitter = _resolve_user_name(submitter_raw, user_mapping) if submitter_raw else "—"
@@ -472,7 +556,7 @@ def render_instance_list():
                 break
         title = form_title or detail.get("approval_name", "无标题")
 
-        row = st.columns([3, 2, 1, 1, 1, 1, 1, 0.5])
+        row = st.columns([3, 2, 1, 1, 1, 0.5])
         checked = row[0].checkbox(
             f"{idx + 1}. {title}",
             key=f"sel_{code}",
@@ -483,12 +567,13 @@ def render_instance_list():
         row[1].markdown(f"`{serial}`")
         row[2].markdown(status_text)
         row[3].markdown(submitter)
-        row[4].markdown(submit_time)
-        row[5].markdown(end_time)
-        row[6].markdown(handler)
-        if row[7].button("📋", key=f"det_{code}", help="查看详情"):
+        row[4].markdown(handler)
+        if row[5].button("📋", key=f"det_{code}", help="查看详情"):
             st.session_state.detail_code = code
             st.switch_page("pages/detail.py")
+
+        with st.expander(f"💰 薪酬明细", expanded=False):
+            _render_salary_details(form_widgets)
 
     st.session_state.selected_instances = selected
 
