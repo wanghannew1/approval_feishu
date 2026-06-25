@@ -303,7 +303,7 @@ def render_query_panel(approval_code):
         status_option = st.selectbox(
             "审批状态",
             options=list(STATUS_LABELS.keys()),
-            index=1,  # Default: "审批完成待出纳办理"
+            index=2,  # Default: "审批中"
             key="status_filter",
         )
 
