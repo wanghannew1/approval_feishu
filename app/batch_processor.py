@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as XLImage
+from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
 from app.feishu_api import download_file, extract_attachments, get_instance_detail, parse_form
@@ -623,6 +624,9 @@ def _insert_signature_to_excel_openpyxl(
 
             row, col = positions[role]
             target_col = _split_merged_for_text(payroll_ws, row, col)
+
+            text_cell = payroll_ws.cell(row=row, column=col)
+            text_cell.font = Font(size=10)
 
             img = XLImage(str(sig_path))
             img.width = 120
