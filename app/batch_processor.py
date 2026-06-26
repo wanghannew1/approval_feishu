@@ -443,6 +443,58 @@ def _apply_border_styles(ws, signature_positions):
         logger.warning(f"[BORDER] 边框设置出错: {e}")
 
 
+def _estimate_col_width(cell_value) -> float:
+    """估算单元格内容所需列宽。中文/全角字符计 2，其他计 1。"""
+    text = str(cell_value)
+    width = 0
+    for ch in text:
+        if '\u4e00' <= ch <= '\u9fff' or '\uff00' <= ch <= '\uffef':
+            width += 2
+        else:
+            width += 1
+    return width
+
+
+def _auto_column_width(ws, min_width: float = 6, max_width: float = 14):
+    """
+    按各列内容的实际显示宽度自适应调整列宽，避免打印时 ### 溢出或列过宽导致缩放字太小。
+
+    扫描范围自动限制在数据行（合计行以内），跳过签名/备注等底部说明行。
+
+    参数:
+        min_width: 最小列宽，防止过窄
+        max_width: 最大列宽，防止列过宽导致 fitToPage 后缩放比例过小
+    """
+    sig_keywords = {"总经理签字", "部长签字", "财务审核", "业务审核", "部长、分管副总签字", "分管副总签字"}
+    total_row = _find_total_row(ws)
+    scan_end = ws.max_row
+    if total_row > 0:
+        scan_end = total_row
+    else:
+        for r in range(1, ws.max_row + 1):
+            for c in range(1, ws.max_column + 1):
+                v = ws.cell(row=r, column=c).value
+                if v and any(kw in str(v) for kw in sig_keywords):
+                    scan_end = r - 1
+                    break
+            if scan_end < ws.max_row:
+                break
+
+    for col in range(1, ws.max_column + 1):
+        col_letter = get_column_letter(col)
+        max_content = 0
+        for row in range(1, scan_end + 1):
+            cell = ws.cell(row=row, column=col)
+            if cell.value is not None:
+                w = _estimate_col_width(cell.value)
+                if w > max_content:
+                    max_content = w
+
+        if max_content > 0:
+            desired = max(min(max_content + 2, max_width), min_width)
+            ws.column_dimensions[col_letter].width = desired
+
+
 def _hide_columns(ws):
     headers_to_hide = {"部门", "岗位", "职工号"}
     header_row = 3
@@ -490,6 +542,7 @@ def adjust_excel_for_print(ws, signature_positions=None) -> None:
         logger.info("[PRINT] 已调整: 横向A4, 左2cm其余1cm, 1页宽, fitToPage=True, 网格线关闭")
 
         _hide_columns(ws)
+        _auto_column_width(ws)
 
         if signature_positions:
             _apply_border_styles(ws, signature_positions)
