@@ -392,13 +392,14 @@ def _build_output_path(excel_path: Path, output_path: Path, ws) -> Path:
 
 def _find_total_row(ws) -> int:
     keywords = ["合计", "总计", "合计金额", "合计费用", "合计支付"]
-    for row in range(1, ws.max_row + 1):
+    for row in range(ws.max_row, 0, -1):
         for col in range(1, ws.max_column + 1):
             cell = ws.cell(row=row, column=col)
             if cell.value:
-                val = str(cell.value).strip()
+                # 去空格后匹配，兼容"合 计"等含空格的写法
+                val = str(cell.value).replace(" ", "").replace("\u3000", "")
                 for kw in keywords:
-                    if kw in val:
+                    if kw in val and len(val) <= len(kw) + 4:
                         return row
     return 0
 
@@ -455,15 +456,19 @@ def _estimate_col_width(cell_value) -> float:
     return width
 
 
-def _auto_column_width(ws, min_width: float = 6, max_width: float = 14):
+def _auto_column_width(ws, min_width: float = 6, max_width: float = 14, max_font_size: float = 11):
     """
-    按各列内容的实际显示宽度自适应调整列宽，避免打印时 ### 溢出或列过宽导致缩放字太小。
+    自适应列宽 + 统一数据区字号，避免打印时 ### 溢出或列过宽导致缩放字太小。
 
-    扫描范围自动限制在数据行（合计行以内），跳过签名/备注等底部说明行。
+    策略：
+    1. 数据行（从第 4 行起到合计行/签名行之前）字号统一降至 max_font_size
+    2. 按内容估算各列所需宽度，取「原宽度 vs 估算宽度」的较大值
+       （只扩不缩，避免新产生 ###）
 
     参数:
-        min_width: 最小列宽，防止过窄
-        max_width: 最大列宽，防止列过宽导致 fitToPage 后缩放比例过小
+        min_width:    最小列宽
+        max_width:    最大列宽（缩小字号后此值即可控制缩放比例不过小）
+        max_font_size: 数据区字号上限
     """
     sig_keywords = {"总经理签字", "部长签字", "财务审核", "业务审核", "部长、分管副总签字", "分管副总签字"}
     total_row = _find_total_row(ws)
@@ -480,6 +485,15 @@ def _auto_column_width(ws, min_width: float = 6, max_width: float = 14):
             if scan_end < ws.max_row:
                 break
 
+    # --- 1. 缩小数据区字号（从第 4 行起，表头保留原样）---
+    data_start = 4
+    for row in range(data_start, scan_end + 1):
+        for col in range(1, ws.max_column + 1):
+            cell = ws.cell(row=row, column=col)
+            if cell.value is not None and cell.font.size and cell.font.size > max_font_size:
+                cell.font = Font(size=max_font_size, name=cell.font.name)
+
+    # --- 2. 自适应列宽（只扩不缩）---
     for col in range(1, ws.max_column + 1):
         col_letter = get_column_letter(col)
         max_content = 0
@@ -491,7 +505,8 @@ def _auto_column_width(ws, min_width: float = 6, max_width: float = 14):
                     max_content = w
 
         if max_content > 0:
-            desired = max(min(max_content + 2, max_width), min_width)
+            orig = ws.column_dimensions[col_letter].width or 0
+            desired = max(min(max_content + 2, max_width), min_width, orig)
             ws.column_dimensions[col_letter].width = desired
 
 
