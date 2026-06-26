@@ -456,19 +456,66 @@ def _estimate_col_width(cell_value) -> float:
     return width
 
 
-def _auto_column_width(ws, min_width: float = 6, max_width: float = 14, max_font_size: float = 11):
+def _calc_data_font_size(ws, col_widths: dict) -> float:
+    """
+    根据列宽与内容宽度的比值，动态选择一个统一的数据区字号。
+
+    取所有可见列中「最紧」那列的比值，映射到字号：
+      col_width / content_width >= 2.0 → 16pt
+      col_width / content_width >= 1.4 → 14pt
+      其他 → 11pt
+
+    注意：内容宽度从表头行（row 3）开始扫描，排除标题行（row 1）和签名行的长文本干扰。
+    """
+    sig_keywords = {"总经理签字", "部长签字", "财务审核", "业务审核", "部长、分管副总签字", "分管副总签字"}
+    min_ratio = float("inf")
+    for col in range(1, ws.max_column + 1):
+        col_letter = get_column_letter(col)
+        if ws.column_dimensions[col_letter].hidden:
+            continue
+        col_w = col_widths.get(col, 0)
+        if col_w <= 0:
+            continue
+        max_cw = 0
+        for row in range(3, ws.max_row + 1):
+            cell = ws.cell(row=row, column=col)
+            val = cell.value
+            if val is not None:
+                # 跳过签名行
+                is_sig = False
+                for c in range(1, ws.max_column + 1):
+                    cv = ws.cell(row=row, column=c).value
+                    if cv and any(kw in str(cv) for kw in sig_keywords):
+                        is_sig = True
+                        break
+                if is_sig:
+                    continue
+                # 跳过公式（文本是公式原文，显示值才是实际宽度）
+                if isinstance(val, str) and val.startswith("="):
+                    continue
+                w = _estimate_col_width(val)
+                if w > max_cw:
+                    max_cw = w
+        if max_cw > 3:
+            ratio = col_w / max_cw
+            if ratio < min_ratio:
+                min_ratio = ratio
+
+    if min_ratio >= 2.0:
+        return 16
+    elif min_ratio >= 1.4:
+        return 14
+    return 11
+
+
+def _auto_column_width(ws, min_width: float = 6, max_width: float = 14):
     """
     自适应列宽 + 统一数据区字号，避免打印时 ### 溢出或列过宽导致缩放字太小。
 
-    策略：
-    1. 数据行（从第 4 行起到合计行/签名行之前）字号统一降至 max_font_size
-    2. 按内容估算各列所需宽度，取「原宽度 vs 估算宽度」的较大值
-       （只扩不缩，避免新产生 ###）
-
-    参数:
-        min_width:    最小列宽
-        max_width:    最大列宽（缩小字号后此值即可控制缩放比例不过小）
-        max_font_size: 数据区字号上限
+    流程：
+    1. 自适应列宽（只扩不缩，以合计行/签名行为数据区下界）
+    2. 按各列「列宽/内容宽度」比值动态确定统一字号
+    3. 覆盖全表数据行（row 4 起），统一字号
     """
     sig_keywords = {"总经理签字", "部长签字", "财务审核", "业务审核", "部长、分管副总签字", "分管副总签字"}
     total_row = _find_total_row(ws)
@@ -485,22 +532,16 @@ def _auto_column_width(ws, min_width: float = 6, max_width: float = 14, max_font
             if scan_end < ws.max_row:
                 break
 
-    # --- 1. 缩小数据区字号（从第 4 行起，表头保留原样）---
-    data_start = 4
-    for row in range(data_start, scan_end + 1):
-        for col in range(1, ws.max_column + 1):
-            cell = ws.cell(row=row, column=col)
-            if cell.value is not None and cell.font.size and cell.font.size > max_font_size:
-                cell.font = Font(size=max_font_size, name=cell.font.name)
-
-    # --- 2. 自适应列宽（只扩不缩）---
+    # --- 1. 自适应列宽（只扩不缩）---
+    col_widths = {}
     for col in range(1, ws.max_column + 1):
         col_letter = get_column_letter(col)
         max_content = 0
         for row in range(1, scan_end + 1):
             cell = ws.cell(row=row, column=col)
-            if cell.value is not None:
-                w = _estimate_col_width(cell.value)
+            val = cell.value
+            if val is not None and not (isinstance(val, str) and val.startswith("=")):
+                w = _estimate_col_width(val)
                 if w > max_content:
                     max_content = w
 
@@ -508,6 +549,25 @@ def _auto_column_width(ws, min_width: float = 6, max_width: float = 14, max_font
             orig = ws.column_dimensions[col_letter].width or 0
             desired = max(min(max_content + 2, max_width), min_width, orig)
             ws.column_dimensions[col_letter].width = desired
+            col_widths[col] = desired
+
+    # --- 2. 动态计算统一字号 ---
+    data_font_size = _calc_data_font_size(ws, col_widths)
+
+    # --- 3. 统一数据区字号（row 4 起全表覆盖，跳过签名行）---
+    for row in range(4, ws.max_row + 1):
+        is_sig_row = False
+        for c in range(1, ws.max_column + 1):
+            v = ws.cell(row=row, column=c).value
+            if v and any(kw in str(v) for kw in sig_keywords):
+                is_sig_row = True
+                break
+        if is_sig_row:
+            continue
+        for col in range(1, ws.max_column + 1):
+            cell = ws.cell(row=row, column=col)
+            if cell.value is not None and cell.font.size and cell.font.size != data_font_size:
+                cell.font = Font(size=data_font_size, name=cell.font.name)
 
 
 def _hide_columns(ws):
