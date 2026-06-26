@@ -691,7 +691,7 @@ def _handle_print():
 def main():
     Path("./signatures").mkdir(exist_ok=True)
     Path("./downloads").mkdir(exist_ok=True)
-    Path("./log").mkdir(exist_ok=True)
+    Path("./logs").mkdir(exist_ok=True)
     approval_code = render_sidebar()
     render_query_panel(approval_code)
     render_instance_list()
