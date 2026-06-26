@@ -404,46 +404,6 @@ def _find_total_row(ws) -> int:
     return 0
 
 
-def _apply_border_styles(ws, signature_positions):
-    from openpyxl.styles import Border, Side
-    try:
-        thick = Side(style='medium', color='000000')
-        none = Side(style=None)
-
-        total_row = _find_total_row(ws)
-        sig_rows = sorted({r for (r, _) in signature_positions.values()})
-        if not sig_rows:
-            logger.info("[BORDER] 无签名位置，跳过边框设置")
-            return
-        sig_start = min(sig_rows)
-        sig_end = max(sig_rows)
-        last_col = ws.max_column
-
-        border_start = 3
-        border_end = sig_end + 2
-
-        if border_start <= border_end:
-            for r in range(border_start, border_end + 1):
-                for c in range(1, last_col + 1):
-                    is_top = r == border_start
-                    is_bottom = r == border_end
-                    is_left = c == 1
-                    is_right = c == last_col
-                    if not (is_top or is_bottom or is_left or is_right):
-                        continue
-                    cell = ws.cell(row=r, column=c)
-                    cell.border = Border(
-                        top=thick if is_top else cell.border.top,
-                        bottom=thick if is_bottom else cell.border.bottom,
-                        left=thick if is_left else cell.border.left,
-                        right=thick if is_right else cell.border.right,
-                    )
-
-        logger.info(f"[BORDER] 外框从第{border_start}行到第{border_end}行，内部单元格边框保留")
-    except Exception as e:
-        logger.warning(f"[BORDER] 边框设置出错: {e}")
-
-
 def _estimate_col_width(cell_value) -> float:
     """估算单元格内容所需列宽。中文/全角字符计 2，其他计 1。"""
     text = str(cell_value)
@@ -595,7 +555,7 @@ def _prevent_signature_page_split(ws, positions: Dict[str, Tuple[int, int]]):
     logger.info(f"[PAGE] 签名行高度调整为45pt ({len(sig_rows)}个签名行)")
 
 
-def adjust_excel_for_print(ws, signature_positions=None) -> None:
+def adjust_excel_for_print(ws) -> None:
     """
     调整 Excel 打印设置：横向打印，A4 纸，左边距 2cm，其他边距 1cm，
     所有列缩放到 1 页宽，水平居中。
@@ -604,13 +564,13 @@ def adjust_excel_for_print(ws, signature_positions=None) -> None:
     try:
         ws.page_setup.paperSize = 9          # A4
         ws.page_setup.orientation = "landscape"
-        ws.sheet_properties.pageSetUpPr.fitToPage = True  # 正确路径，必须先启用
-        ws.page_setup.fitToWidth = 1         # 缩放到 1 页宽
-        ws.page_setup.fitToHeight = 0        # 高度自动分页
-        ws.page_margins.left = 0.8           # 2cm
-        ws.page_margins.right = 0.4          # 1cm
-        ws.page_margins.top = 0.4            # 1cm
-        ws.page_margins.bottom = 0.4         # 1cm
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.page_margins.left = 0.8
+        ws.page_margins.right = 0.4
+        ws.page_margins.top = 0.4
+        ws.page_margins.bottom = 0.4
         ws.print_options.horizontalCentered = True
         ws.print_options.verticalCentered = False
         ws.print_options.gridLines = False
@@ -618,9 +578,6 @@ def adjust_excel_for_print(ws, signature_positions=None) -> None:
 
         _hide_columns(ws)
         _auto_column_width(ws)
-
-        if signature_positions:
-            _apply_border_styles(ws, signature_positions)
     except Exception as e:
         logger.warning(f"[PRINT] 调整打印设置时出错: {e}")
 
@@ -726,7 +683,7 @@ def _insert_signature_to_excel_openpyxl(
             return False, [], output_path
 
         positions = find_all_signature_positions(payroll_ws, cfg)
-        adjust_excel_for_print(payroll_ws, positions)
+        adjust_excel_for_print(payroll_ws)
         logger.info(f"[SIGN] Found positions: {positions}")
         if not positions:
             logger.warning(f"[SIGN] No signature positions found in {excel_path.name}")
