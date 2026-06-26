@@ -641,7 +641,9 @@ def _insert_signature_to_excel_openpyxl(
             for c in range(1, payroll_ws.max_column + 1):
                 cell = payroll_ws.cell(row=r, column=c)
                 if cell.value and "制表人" in str(cell.value):
-                    cell.font = Font(size=10)
+                    old_size = cell.font.size or 11
+                    if old_size > 10:
+                        cell.font = Font(size=10)
 
         _prevent_signature_page_split(payroll_ws, positions)
 
