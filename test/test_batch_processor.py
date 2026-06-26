@@ -42,15 +42,16 @@ class TestIsPayrollSheet:
     def test_payroll_sheet_with_all_required_elements(self):
         """Test detection of valid payroll sheet with all required elements."""
         row_data = {
-            (1, 1): "2024年工资发放表",
-            (2, 1): "单位名称：某公司",
-            (3, 1): "转账合计",
-            (3, 2): "应发工资",
-            (3, 3): "实发工资",
-            (3, 4): "实发合计",
-            (5, 1): "总经理签字",
-            (6, 1): "部长签字",
-            (7, 1): "财务审核",
+            (1, 1): "2026年派遣员工5月工资明细表（林下参）",
+            (2, 1): "序号",
+            (2, 2): "姓名",
+            (2, 3): "基本工资",
+            (2, 4): "应发工资",
+            (2, 5): "转款合计",
+            (2, 6): "实发工资",
+            (3, 1): "养老",
+            (10, 1): "   总经理签字：",
+            (10, 11): "财务审核：",
         }
         ws = self._make_mock_worksheet(row_data)
         assert is_payroll_sheet(ws) is True
@@ -59,24 +60,21 @@ class TestIsPayrollSheet:
         """Test rejection when row 1 lacks required keyword."""
         row_data = {
             (1, 1): "普通表格",
-            (2, 1): "单位名称：某公司",
-            (3, 1): "转账合计",
-            (3, 2): "应发工资",
-            (3, 3): "实发工资",
-            (3, 4): "实发合计",
+            (2, 1): "序号",
+            (2, 2): "应发工资",
+            (3, 1): "养老",
+            (10, 1): "   总经理签字：",
         }
         ws = self._make_mock_worksheet(row_data)
         assert is_payroll_sheet(ws) is False
 
     def test_payroll_sheet_missing_org_keyword(self):
-        """Test rejection when row 2 lacks organization keyword."""
+        """Test rejection when row 2 lacks required keyword."""
         row_data = {
-            (1, 1): "2024年工资发放表",
+            (1, 1): "2026年派遣员工5月工资明细表（林下参）",
             (2, 1): "部门信息",
-            (3, 1): "转账合计",
-            (3, 2): "应发工资",
-            (3, 3): "实发工资",
-            (3, 4): "实发合计",
+            (3, 1): "养老",
+            (10, 1): "   总经理签字：",
         }
         ws = self._make_mock_worksheet(row_data)
         assert is_payroll_sheet(ws) is False
@@ -84,9 +82,11 @@ class TestIsPayrollSheet:
     def test_payroll_sheet_missing_headers(self):
         """Test rejection when row 3 lacks required headers."""
         row_data = {
-            (1, 1): "2024年工资发放表",
-            (2, 1): "单位名称：某公司",
+            (1, 1): "2026年派遣员工5月工资明细表（林下参）",
+            (2, 1): "序号",
+            (2, 2): "应发工资",
             (3, 1): "转账合计",
+            (10, 1): "   总经理签字：",
         }
         ws = self._make_mock_worksheet(row_data)
         assert is_payroll_sheet(ws) is False
@@ -94,13 +94,11 @@ class TestIsPayrollSheet:
     def test_payroll_sheet_missing_signature_keywords(self):
         """Test rejection when signature keywords not found."""
         row_data = {
-            (1, 1): "2024年工资发放表",
-            (2, 1): "单位名称：某公司",
-            (3, 1): "转账合计",
-            (3, 2): "应发工资",
-            (3, 3): "实发工资",
-            (3, 4): "实发合计",
-            (5, 1): "其他内容",
+            (1, 1): "2026年派遣员工5月工资明细表（林下参）",
+            (2, 1): "序号",
+            (2, 2): "应发工资",
+            (3, 1): "养老",
+            (10, 1): "其他内容",
         }
         ws = self._make_mock_worksheet(row_data)
         assert is_payroll_sheet(ws) is False
