@@ -689,6 +689,12 @@ def _insert_signature_to_excel_openpyxl(
             logger.warning(f"[SIGN] No signature positions found in {excel_path.name}")
             return False, [], output_path
 
+        # 先统一归一化所有签名提示词，不依赖签名图片是否存在
+        for (row, col) in positions.values():
+            cell = payroll_ws.cell(row=row, column=col)
+            if cell.value and "部长、分管副总签字" in str(cell.value):
+                cell.value = str(cell.value).replace("部长、分管副总签字", "部长签字")
+
         logger.info(f"[SIGN] Approvers: {[a['role'] for a in approvers]}")
         for approver in approvers:
             role = approver.get("role")
