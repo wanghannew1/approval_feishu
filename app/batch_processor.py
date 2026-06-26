@@ -43,7 +43,7 @@ def _print_with_com(file_path: Path, printer_name: Optional[str] = None) -> bool
         wb = None
 
         try:
-            app = win32com.client.Dispatch("Excel.Application")
+            app = win32com.client.DispatchEx("Excel.Application")
             app.Visible = False
             app.DisplayAlerts = False
 
@@ -585,7 +585,7 @@ def _convert_xls_to_xlsx_windows(xls_path: Path) -> Optional[Path]:
         wb = None
         try:
             xlsx_path = xls_path.with_suffix(".xlsx")
-            excel = win32com.client.Dispatch("Excel.Application")
+            excel = win32com.client.DispatchEx("Excel.Application")
             excel.Visible = False
             excel.DisplayAlerts = False
             wb = excel.Workbooks.Open(str(xls_path.resolve()))
