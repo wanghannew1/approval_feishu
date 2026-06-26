@@ -8,6 +8,7 @@ import json
 import logging
 import platform
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -55,7 +56,7 @@ def _print_with_com(file_path: Path, printer_name: Optional[str] = None) -> bool
             app.Quit()
             return True
         except Exception as e:
-            print(f"WPS/Excel打印失败: {e}")
+            logger.warning(f"[PRINT] WPS/Excel打印失败: {e}")
             return False
         finally:
             try:
@@ -91,7 +92,7 @@ def _print_with_libreoffice(file_path: Path, printer_name: Optional[str] = None)
             return result.returncode == 0
         return False
     except FileNotFoundError:
-        print("LibreOffice未安装")
+        logger.warning("[PRINT] LibreOffice未安装")
         return False
 
 
@@ -101,7 +102,7 @@ def print_file(file_path: Path, printer_name: Optional[str] = None) -> bool:
         success = _print_with_com(file_path, printer_name)
         if success:
             return True
-        print("COM打印失败，尝试LibreOffice...")
+        logger.warning("[PRINT] COM打印失败，尝试LibreOffice...")
         return _print_with_libreoffice(file_path, printer_name)
     else:
         return _print_with_libreoffice(file_path, printer_name)
@@ -654,7 +655,13 @@ def _insert_signature_to_excel_openpyxl(
             del wb[sn]
             logger.info(f"[SIGN] Removed non-payroll sheet: {sn}")
 
-        wb.save(str(actual_output))
+        try:
+            wb.save(str(actual_output))
+        except PermissionError:
+            fallback = actual_output.parent / f"{actual_output.stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            logger.warning(f"[SIGN] 文件被占用，无法写入 {actual_output.name}，另存为 {fallback.name}")
+            wb.save(str(fallback))
+            actual_output = fallback
         logger.info(f"[SIGN] Saved to {actual_output.name}, inserted: {inserted_roles}")
         return len(inserted_roles) > 0, inserted_roles, actual_output
     except Exception as e:

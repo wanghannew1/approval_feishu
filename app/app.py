@@ -7,6 +7,7 @@ inserting signatures, and printing payroll sheets.
 
 import io
 import json
+import logging
 import os
 import sys
 from datetime import datetime, timedelta
@@ -19,6 +20,9 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 
 import streamlit as st
 from dotenv import load_dotenv
+
+from app import logger_config  # noqa: F401  # 初始化文件日志
+app_logger = logging.getLogger("FeishuApproval")
 
 from app.batch_processor import (
     get_approvers_with_roles,
@@ -659,6 +663,10 @@ def _handle_download_and_sign():
     st.session_state.signed_files = signed_files
     progress.empty()
     st.success(f"下载及签名完成：成功 {success_count}/{total}，共下载 {total_downloaded} 个表，签名 {total_signed} 处")
+    app_logger.info(
+        f"[BATCH] 下载及签名完成: 成功 {success_count}/{total}, "
+        f"下载 {total_downloaded} 个, 签名 {total_signed} 处"
+    )
 
 
 def _handle_print():
@@ -675,13 +683,15 @@ def _handle_print():
         try:
             print_file(f)
             st.success(f"已打印: {f.name}")
+            app_logger.info(f"[PRINT] 打印成功: {f.name}")
         except Exception as e:
             st.error(f"打印失败 {f.name}: {e}")
+            app_logger.error(f"[PRINT] 打印失败 {f.name}: {e}")
 
 def main():
     Path("./signatures").mkdir(exist_ok=True)
     Path("./downloads").mkdir(exist_ok=True)
-    Path("./logs").mkdir(exist_ok=True)
+    Path("./log").mkdir(exist_ok=True)
     approval_code = render_sidebar()
     render_query_panel(approval_code)
     render_instance_list()
