@@ -636,6 +636,13 @@ def _insert_signature_to_excel_openpyxl(
             inserted_roles.append(role)
             logger.info(f"[SIGN] Inserted signature for {role} at {cell_addr}")
 
+        sig_rows = {r for r, _ in positions.values()}
+        for r in sig_rows:
+            for c in range(1, payroll_ws.max_column + 1):
+                cell = payroll_ws.cell(row=r, column=c)
+                if cell.value and "制表人" in str(cell.value):
+                    cell.font = Font(size=10)
+
         _prevent_signature_page_split(payroll_ws, positions)
 
         actual_output = _build_output_path(excel_path, output_path, payroll_ws)
