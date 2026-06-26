@@ -249,56 +249,53 @@ def get_payroll_config() -> dict:
 
 
 def is_payroll_sheet(ws, config: Optional[dict] = None) -> bool:
-    """判断 worksheet 是否为应打印的工资发放表，规则全部从配置读取。"""
     cfg = config or get_payroll_config()
     sf = cfg["sheet_filter"]
 
-    row1_text = ""
-    for col in range(1, ws.max_column + 1):
-        cell = ws.cell(row=1, column=col)
-        if cell.value:
-            row1_text += str(cell.value).strip()
-    req = sf["row1_title"]["required_keyword"]
-    if req not in row1_text:
+    all_text = ""
+    header_text = ""
+    for row in range(1, min(ws.max_row + 1, 50)):
+        row_text = ""
+        for col in range(1, ws.max_column + 1):
+            cell_val = ws.cell(row=row, column=col).value
+            if cell_val:
+                cleaned = str(cell_val).replace("\u3000", "").strip()
+                row_text += cleaned
+                all_text += cleaned
+        if row <= 3:
+            header_text += row_text
+
+    for kw in sf.get("exclude_keywords", {}).get("keywords", []):
+        if kw in header_text:
+            return False
+
+    title_kw = sf.get("title_keyword", {}).get("required", "")
+    if title_kw and title_kw not in header_text:
         return False
+
+    for kw in sf.get("required_content", {}).get("required", []):
+        if kw not in all_text:
+            return False
 
     mandatory = {
         k: v for k, v in sf["signatures"]["mandatory"].items()
         if k != "description"
     }
-    found = set()
-    for row in range(1, ws.max_row + 1):
-        for col in range(1, ws.max_column + 1):
-            cell_val = str(ws.cell(row=row, column=col).value or "")
-            for role, keywords in mandatory.items():
-                if role not in found:
-                    if any(kw in cell_val for kw in keywords):
-                        found.add(role)
+    if mandatory:
+        found = set()
+        for row in range(1, ws.max_row + 1):
+            for col in range(1, ws.max_column + 1):
+                cell_val = str(ws.cell(row=row, column=col).value or "")
+                for role, keywords in mandatory.items():
+                    if role not in found:
+                        if any(kw in cell_val for kw in keywords):
+                            found.add(role)
+                if len(found) == len(mandatory):
+                    break
             if len(found) == len(mandatory):
                 break
-        if len(found) == len(mandatory):
-            break
-    if len(found) < len(mandatory):
-        return False
-
-    row2_text = ""
-    for col in range(1, ws.max_column + 1):
-        cell = ws.cell(row=2, column=col)
-        if cell.value:
-            row2_text += str(cell.value).strip()
-    normalized = row2_text.replace(" ", "").replace("\u3000", "")
-    req_normalized = sf["row2_org"]["required_keyword"].replace(" ", "").replace("\u3000", "")
-    if req_normalized not in normalized:
-        return False
-
-    required = set(sf["row3_headers"]["required"])
-    row3_headers = set()
-    for col in range(1, ws.max_column + 1):
-        cell_val = str(ws.cell(row=3, column=col).value or "").strip()
-        if cell_val:
-            row3_headers.add(cell_val)
-    if not required.issubset(row3_headers):
-        return False
+        if len(found) < len(mandatory):
+            return False
 
     return True
 

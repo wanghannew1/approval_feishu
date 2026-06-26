@@ -2,22 +2,18 @@
     "_comment": "工资发放表识别规则配置 —— 修改此文件即可调整筛选条件，无需改代码",
 
     "sheet_filter": {
-
-        "row1_title": {
-            "description": "第一行标题必须包含的关键词（实际格式为「××公司 2026年派遣员工5月工资明细表」）",
-            "required_keyword": "工资明细表"
+        "title_keyword": {
+            "description": "前3行标题必须包含的关键词",
+            "required": "工资"
         },
-
-        "row2_org": {
-            "description": "第二行必须包含的关键词（辅助校验，实际是列标题行）",
-            "required_keyword": "应发工资"
+        "exclude_keywords": {
+            "description": "排除关键词（前3行中包含以下任一关键词则跳过，汇总表用此排除）",
+            "keywords": ["汇总数据"]
         },
-
-        "row3_headers": {
-            "description": "第三行列头必须全部包含的字段（缺一不可，实际是本月扣款子标题行）",
-            "required": ["养老"]
+        "required_content": {
+            "description": "全表中必须包含的关键词（缺一不可，用于区分明细表和汇总表）",
+            "required": ["应发工资", "实发工资"]
         },
-
         "signatures": {
             "description": "签字栏检测规则",
             "mandatory": {
@@ -26,11 +22,10 @@
             },
             "optional": {
                 "description": "可选的签字项（有则签，无不影响通过）",
-                "部长签字":   ["部长签字", "部长、分管副总签字", "分管副总签字"],
-                "财务审核":   ["财务审核"],
+                "部长签字": ["部长签字"],
+                "财务审核": ["财务审核"],
                 "业务审核": ["业务审核"]
             }
         }
-
     }
 }

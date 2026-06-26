@@ -40,7 +40,6 @@ class TestIsPayrollSheet:
         return ws
 
     def test_payroll_sheet_with_all_required_elements(self):
-        """Test detection of valid payroll sheet with all required elements."""
         row_data = {
             (1, 1): "2026年派遣员工5月工资明细表（林下参）",
             (2, 1): "序号",
@@ -57,19 +56,17 @@ class TestIsPayrollSheet:
         assert is_payroll_sheet(ws) is True
 
     def test_payroll_sheet_missing_title_keyword(self):
-        """Test rejection when row 1 lacks required keyword."""
         row_data = {
             (1, 1): "普通表格",
             (2, 1): "序号",
-            (2, 2): "应发工资",
-            (3, 1): "养老",
+            (2, 2): "姓名",
+            (2, 3): "金额",
             (10, 1): "   总经理签字：",
         }
         ws = self._make_mock_worksheet(row_data)
         assert is_payroll_sheet(ws) is False
 
-    def test_payroll_sheet_missing_org_keyword(self):
-        """Test rejection when row 2 lacks required keyword."""
+    def test_payroll_sheet_missing_required_content(self):
         row_data = {
             (1, 1): "2026年派遣员工5月工资明细表（林下参）",
             (2, 1): "部门信息",
@@ -79,47 +76,40 @@ class TestIsPayrollSheet:
         ws = self._make_mock_worksheet(row_data)
         assert is_payroll_sheet(ws) is False
 
-    def test_payroll_sheet_missing_headers(self):
-        """Test rejection when row 3 lacks required headers."""
+    def test_payroll_sheet_missing_signature(self):
         row_data = {
             (1, 1): "2026年派遣员工5月工资明细表（林下参）",
             (2, 1): "序号",
             (2, 2): "应发工资",
-            (3, 1): "转账合计",
-            (10, 1): "   总经理签字：",
-        }
-        ws = self._make_mock_worksheet(row_data)
-        assert is_payroll_sheet(ws) is False
-
-    def test_payroll_sheet_missing_signature_keywords(self):
-        """Test rejection when signature keywords not found."""
-        row_data = {
-            (1, 1): "2026年派遣员工5月工资明细表（林下参）",
-            (2, 1): "序号",
-            (2, 2): "应发工资",
+            (2, 3): "实发工资",
             (3, 1): "养老",
             (10, 1): "其他内容",
         }
         ws = self._make_mock_worksheet(row_data)
         assert is_payroll_sheet(ws) is False
 
+    def test_payroll_sheet_excluded_by_keyword(self):
+        row_data = {
+            (1, 1): "工资发放汇总数据",
+            (2, 1): "生成时间",
+            (4, 1): "文件名",
+        }
+        ws = self._make_mock_worksheet(row_data)
+        assert is_payroll_sheet(ws) is False
+
     def test_payroll_sheet_with_custom_config(self):
-        """Test is_payroll_sheet with custom config."""
         row_data = {
             (1, 1): "自定义工资表",
-            (2, 1): "公司名",
-            (3, 1): "转账合计",
-            (3, 2): "应发工资",
-            (3, 3): "实发工资",
-            (3, 4): "实发合计",
+            (2, 1): "应发工资",
+            (2, 2): "实发工资",
             (5, 1): "manager",
         }
         ws = self._make_mock_worksheet(row_data)
         custom_config = {
             "sheet_filter": {
-                "row1_title": {"required_keyword": "自定义工资表"},
-                "row2_org": {"required_keyword": "公司名"},
-                "row3_headers": {"required": ["转账合计", "应发工资", "实发工资", "实发合计"]},
+                "title_keyword": {"required": "自定义工资表"},
+                "exclude_keywords": {"keywords": []},
+                "required_content": {"required": ["应发工资", "实发工资"]},
                 "signatures": {
                     "mandatory": {
                         "manager": ["manager"],
