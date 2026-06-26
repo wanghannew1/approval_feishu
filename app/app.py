@@ -634,7 +634,7 @@ def _handle_download_and_sign():
             if result["success"]:
                 success_count += 1
                 total_downloaded += len(result.get("downloaded", []))
-                total_signed += len(result.get("signed_files", []))
+                total_signed += len(result.get("signed", []))
                 signed_files.extend(result.get("signed_files", []))
                 progress.progress(
                     (i + 1) / total,
