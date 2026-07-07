@@ -314,15 +314,25 @@ def _split_merged_for_text(ws, row, col):
     merged = _is_cell_in_merged_range(ws, row, col)
     if not merged:
         cell = ws.cell(row=row, column=col)
-        if cell.value and "部长、分管副总签字" in str(cell.value):
-            cell.value = str(cell.value).replace("部长、分管副总签字", "部长签字")
+        if cell.value:
+            val = str(cell.value)
+            if "部长、分管副总签字" in val:
+                val = val.replace("部长、分管副总签字", "分管领导审核")
+            if "部长签字" in val:
+                val = val.replace("部长签字", "分管领导审核")
+            cell.value = val
         return col + 1
 
     cell = ws.cell(row=row, column=col)
     text = str(cell.value) if cell.value else ""
 
     if "部长、分管副总签字" in text:
-        cell.value = text.replace("部长、分管副总签字", "部长签字")
+        text = text.replace("部长、分管副总签字", "分管领导审核")
+        cell.value = text
+        needed_cols = 3
+    elif "部长签字" in text:
+        text = text.replace("部长签字", "分管领导审核")
+        cell.value = text
         needed_cols = 3
     else:
         needed_cols = 2
@@ -692,8 +702,14 @@ def _insert_signature_to_excel_openpyxl(
         # 先统一归一化所有签名提示词，不依赖签名图片是否存在
         for (row, col) in positions.values():
             cell = payroll_ws.cell(row=row, column=col)
-            if cell.value and "部长、分管副总签字" in str(cell.value):
-                cell.value = str(cell.value).replace("部长、分管副总签字", "部长签字")
+            if cell.value:
+                val = str(cell.value)
+                if "部长、分管副总签字" in val:
+                    val = val.replace("部长、分管副总签字", "分管领导审核")
+                    cell.value = val
+                elif "部长签字" in val:
+                    val = val.replace("部长签字", "分管领导审核")
+                    cell.value = val
 
         logger.info(f"[SIGN] Approvers: {[a['role'] for a in approvers]}")
         for approver in approvers:
