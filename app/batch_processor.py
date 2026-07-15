@@ -240,14 +240,30 @@ def get_payroll_config() -> dict:
                     "signatures": {
                         "mandatory": {
                             "总经理签字": ["总经理签字"],
-                            "部长签字": ["部长签字", "部长、分管副总签字", "分管副总签字"],
+                        },
+                        "optional": {
+                            "分管领导审核": ["分管领导审核"],
                             "财务审核": ["财务审核"],
                         },
-                        "optional": {},
                     },
                 }
             }
+        if "text_normalization" not in _PAYROLL_CONFIG:
+            _PAYROLL_CONFIG["text_normalization"] = {
+                "rules": [
+                    {"source": "部长、分管副总签字", "target": "分管领导审核"},
+                    {"source": "部长签字", "target": "分管领导审核"},
+                ]
+            }
     return _PAYROLL_CONFIG
+
+
+def _apply_normalization_rules(cell_value: str, rules: list) -> str:
+    """Apply text normalization rules to a cell value."""
+    for rule in rules:
+        if rule["source"] in cell_value:
+            cell_value = cell_value.replace(rule["source"], rule["target"])
+    return cell_value
 
 
 def is_payroll_sheet(ws, config: Optional[dict] = None) -> bool:
@@ -311,18 +327,21 @@ def _is_cell_in_merged_range(ws, row, col):
 
 
 def _split_merged_for_text(ws, row, col):
+    cfg = get_payroll_config()
+    rules = cfg.get("text_normalization", {}).get("rules", [])
     merged = _is_cell_in_merged_range(ws, row, col)
     if not merged:
         cell = ws.cell(row=row, column=col)
-        if cell.value and "部长、分管副总签字" in str(cell.value):
-            cell.value = str(cell.value).replace("部长、分管副总签字", "部长签字")
+        if cell.value:
+            cell.value = _apply_normalization_rules(str(cell.value), rules)
         return col + 1
 
     cell = ws.cell(row=row, column=col)
     text = str(cell.value) if cell.value else ""
+    normalized = _apply_normalization_rules(text, rules)
 
-    if "部长、分管副总签字" in text:
-        cell.value = text.replace("部长、分管副总签字", "部长签字")
+    if normalized != text:
+        cell.value = normalized
         needed_cols = 3
     else:
         needed_cols = 2
@@ -682,18 +701,21 @@ def _insert_signature_to_excel_openpyxl(
             logger.warning(f"[SIGN] No payroll sheet found in {excel_path.name}")
             return False, [], output_path
 
+        # 先归一化所有单元格文本（如"部长签字"→"分管领导审核"），
+        # 再检测签名位置，确保位置关键词与归一化后的文本一致
+        normalization_rules = cfg.get("text_normalization", {}).get("rules", [])
+        for row in range(1, payroll_ws.max_row + 1):
+            for col in range(1, payroll_ws.max_column + 1):
+                cell = payroll_ws.cell(row=row, column=col)
+                if cell.value:
+                    cell.value = _apply_normalization_rules(str(cell.value), normalization_rules)
+
         positions = find_all_signature_positions(payroll_ws, cfg)
         adjust_excel_for_print(payroll_ws)
         logger.info(f"[SIGN] Found positions: {positions}")
         if not positions:
             logger.warning(f"[SIGN] No signature positions found in {excel_path.name}")
             return False, [], output_path
-
-        # 先统一归一化所有签名提示词，不依赖签名图片是否存在
-        for (row, col) in positions.values():
-            cell = payroll_ws.cell(row=row, column=col)
-            if cell.value and "部长、分管副总签字" in str(cell.value):
-                cell.value = str(cell.value).replace("部长、分管副总签字", "部长签字")
 
         logger.info(f"[SIGN] Approvers: {[a['role'] for a in approvers]}")
         for approver in approvers:
@@ -822,6 +844,8 @@ def process_single_approval(
         "signed_files": [],
         "skipped": False,
         "title": "",
+        "approval_code": "",
+        "cashier_task": None,
     }
 
     try:
@@ -834,6 +858,16 @@ def process_single_approval(
         return result
 
     result["title"] = detail.get("approval_name", instance_code[:20])
+    result["approval_code"] = detail.get("approval_code", "")
+
+    # 提取待审批的出纳办理任务信息
+    for task in detail.get("task_list", []) or []:
+        if task.get("node_name") == "出纳办理" and task.get("status") == "PENDING":
+            result["cashier_task"] = {
+                "task_id": task.get("id"),
+                "open_id": task.get("open_id"),
+            }
+            break
 
     role_mapping_path = config.get("role_mapping_path")
     if role_mapping_path:

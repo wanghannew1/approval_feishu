@@ -84,7 +84,7 @@ def _load_workflow_order():
             order = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         order = {
-            "提交": 1, "业务审核": 2, "部长签字": 3,
+            "提交": 1, "业务审核": 2, "分管领导审核": 3,
             "财务审核": 4, "总经理签字": 5, "出纳办理": 6, "结束": 99,
         }
     return {k: v for k, v in order.items() if not k.startswith("_")}

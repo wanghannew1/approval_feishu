@@ -31,6 +31,7 @@ from app.batch_processor import (
     process_single_approval,
 )
 from app.feishu_api import (
+    approve_task,
     get_definition,
     get_instance_detail,
     get_tenant_token,
@@ -607,6 +608,14 @@ def render_batch_actions():
     if st.button("🖨️ 打印", width="stretch"):
         _handle_print()
 
+    cashier_tasks = st.session_state.get("cashier_tasks", [])
+    if cashier_tasks:
+        st.divider()
+        st.subheader("✅ 出纳办理")
+        st.info(f"{len(cashier_tasks)} 个审批单待完成出纳办理")
+        if st.button("✅ 完成出纳办理", type="primary", width="stretch"):
+            _handle_cashier_approve()
+
 
 def _handle_download_and_sign():
     app_id, app_secret = _get_credentials()
@@ -625,6 +634,7 @@ def _handle_download_and_sign():
     success_count = 0
     total_downloaded = 0
     total_signed = 0
+    cashier_tasks = []
     for i, code in enumerate(selected):
         try:
             result = process_single_approval(
@@ -640,6 +650,13 @@ def _handle_download_and_sign():
                 total_downloaded += len(result.get("downloaded", []))
                 total_signed += len(result.get("signed", []))
                 signed_files.extend(result.get("signed_files", []))
+                # 收集待审批的出纳办理任务
+                if result.get("cashier_task"):
+                    cashier_tasks.append({
+                        "instance_code": code,
+                        "approval_code": result["approval_code"],
+                        **result["cashier_task"],
+                    })
                 progress.progress(
                     (i + 1) / total,
                     text=f"✅ {result['title'][:20]}: {result['message']}",
@@ -661,8 +678,12 @@ def _handle_download_and_sign():
             )
 
     st.session_state.signed_files = signed_files
+    st.session_state.cashier_tasks = cashier_tasks
     progress.empty()
-    st.success(f"下载及签名完成：成功 {success_count}/{total}，共下载 {total_downloaded} 个表，签名 {total_signed} 处")
+    msg = f"下载及签名完成：成功 {success_count}/{total}，共下载 {total_downloaded} 个表，签名 {total_signed} 处"
+    if cashier_tasks:
+        msg += f"（{len(cashier_tasks)} 个待完成出纳办理）"
+    st.success(msg)
     app_logger.info(
         f"[BATCH] 下载及签名完成: 成功 {success_count}/{total}, "
         f"下载 {total_downloaded} 个, 签名 {total_signed} 处"
@@ -691,6 +712,50 @@ def _handle_print():
         except Exception as e:
             st.error(f"打印失败 {f.name}: {e}")
             app_logger.error(f"[PRINT] 打印失败 {f.name}: {e}")
+
+def _handle_cashier_approve():
+    app_id, app_secret = _get_credentials()
+    token = _get_token(app_id, app_secret)
+    if not token:
+        return
+
+    cashier_tasks = st.session_state.get("cashier_tasks", [])
+    if not cashier_tasks:
+        st.warning("没有待完成的出纳办理任务")
+        return
+
+    progress = st.progress(0, text=f"出纳办理 0/{len(cashier_tasks)}")
+    success_count = 0
+    for i, task in enumerate(cashier_tasks):
+        try:
+            approve_task(
+                token,
+                task["approval_code"],
+                task["instance_code"],
+                task["task_id"],
+                task["open_id"],
+                comment="出纳办理完成",
+            )
+            success_count += 1
+            progress.progress(
+                (i + 1) / len(cashier_tasks),
+                text=f"✅ {task['instance_code'][:8]}...: 办理完成",
+            )
+            app_logger.info(f"[CASHIER] 出纳办理成功: {task['instance_code']}")
+        except Exception as e:
+            progress.progress(
+                (i + 1) / len(cashier_tasks),
+                text=f"❌ {task['instance_code'][:8]}...: {e}",
+            )
+            app_logger.error(f"[CASHIER] 出纳办理失败 {task['instance_code']}: {e}")
+
+    progress.empty()
+    if success_count == len(cashier_tasks):
+        st.success(f"出纳办理完成：{success_count}/{len(cashier_tasks)} 全部成功")
+        st.session_state.cashier_tasks = []
+    else:
+        st.warning(f"出纳办理：成功 {success_count}/{len(cashier_tasks)}")
+
 
 def main():
     Path("./signatures").mkdir(exist_ok=True)

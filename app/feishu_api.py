@@ -24,6 +24,7 @@ INSTANCE_DETAIL_URL = f"{BASE_URL}/approval/v4/instances/{{instance_code}}"
 QUERY_URL = f"{BASE_URL}/approval/v4/instances/query"
 DRIVE_DOWNLOAD_URL = f"{BASE_URL}/drive/v1/files/{{file_token}}/download"
 DEFINITION_URL = f"{BASE_URL}/approval/v4/definitions/{{definition_code}}"
+APPROVE_TASK_URL = f"{BASE_URL}/approval/v4/tasks/approve"
 
 CACHE_FILE = Path(".token_cache.json")
 _CACHE_LOCK = threading.Lock()
@@ -398,3 +399,48 @@ def get_definition(token: str, definition_code: str) -> dict:
             f"获取审批定义失败: code={data.get('code')} msg={data.get('msg')}"
         )
     return data.get("data", {})
+
+
+def approve_task(
+    token: str,
+    approval_code: str,
+    instance_code: str,
+    task_id: str,
+    user_id: str,
+    comment: str = "",
+) -> dict:
+    """Approve a specific task in an approval instance.
+
+    Used for completing the "出纳办理" step via API.
+
+    Args:
+        token: Valid tenant access token.
+        approval_code: Approval definition code.
+        instance_code: Approval instance code.
+        task_id: Task ID to approve (from task_list[].id).
+        user_id: Open ID of the user performing the approval.
+        comment: Optional approval comment.
+
+    Returns:
+        API response dict.
+
+    Raises:
+        RuntimeError: If the API returns a non-zero code.
+    """
+    headers = get_auth_headers(token)
+    payload = {
+        "approval_code": approval_code,
+        "instance_code": instance_code,
+        "user_id": user_id,
+        "task_id": task_id,
+        "comment": comment,
+    }
+    resp = requests.post(APPROVE_TASK_URL, headers=headers, json=payload)
+    data = resp.json()
+
+    if data.get("code") != 0:
+        raise RuntimeError(
+            f"审批失败: code={data.get('code')} msg={data.get('msg')}"
+        )
+
+    return data
