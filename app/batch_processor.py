@@ -240,10 +240,11 @@ def get_payroll_config() -> dict:
                     "signatures": {
                         "mandatory": {
                             "总经理签字": ["总经理签字"],
-                            "部长签字": ["部长签字", "部长、分管副总签字", "分管副总签字"],
+                        },
+                        "optional": {
+                            "分管领导审核": ["分管领导审核"],
                             "财务审核": ["财务审核"],
                         },
-                        "optional": {},
                     },
                 }
             }
@@ -700,19 +701,21 @@ def _insert_signature_to_excel_openpyxl(
             logger.warning(f"[SIGN] No payroll sheet found in {excel_path.name}")
             return False, [], output_path
 
+        # 先归一化所有单元格文本（如"部长签字"→"分管领导审核"），
+        # 再检测签名位置，确保位置关键词与归一化后的文本一致
+        normalization_rules = cfg.get("text_normalization", {}).get("rules", [])
+        for row in range(1, payroll_ws.max_row + 1):
+            for col in range(1, payroll_ws.max_column + 1):
+                cell = payroll_ws.cell(row=row, column=col)
+                if cell.value:
+                    cell.value = _apply_normalization_rules(str(cell.value), normalization_rules)
+
         positions = find_all_signature_positions(payroll_ws, cfg)
         adjust_excel_for_print(payroll_ws)
         logger.info(f"[SIGN] Found positions: {positions}")
         if not positions:
             logger.warning(f"[SIGN] No signature positions found in {excel_path.name}")
             return False, [], output_path
-
-        # 先统一归一化所有签名提示词，不依赖签名图片是否存在
-        normalization_rules = cfg.get("text_normalization", {}).get("rules", [])
-        for (row, col) in positions.values():
-            cell = payroll_ws.cell(row=row, column=col)
-            if cell.value:
-                cell.value = _apply_normalization_rules(str(cell.value), normalization_rules)
 
         logger.info(f"[SIGN] Approvers: {[a['role'] for a in approvers]}")
         for approver in approvers:
