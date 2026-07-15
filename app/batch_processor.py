@@ -844,6 +844,8 @@ def process_single_approval(
         "signed_files": [],
         "skipped": False,
         "title": "",
+        "approval_code": "",
+        "cashier_task": None,
     }
 
     try:
@@ -856,6 +858,16 @@ def process_single_approval(
         return result
 
     result["title"] = detail.get("approval_name", instance_code[:20])
+    result["approval_code"] = detail.get("approval_code", "")
+
+    # 提取待审批的出纳办理任务信息
+    for task in detail.get("task_list", []) or []:
+        if task.get("node_name") == "出纳办理" and task.get("status") == "PENDING":
+            result["cashier_task"] = {
+                "task_id": task.get("id"),
+                "open_id": task.get("open_id"),
+            }
+            break
 
     role_mapping_path = config.get("role_mapping_path")
     if role_mapping_path:
