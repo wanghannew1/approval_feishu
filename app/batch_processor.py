@@ -763,6 +763,23 @@ def is_payroll_sheet(ws, config: Optional[dict] = None) -> bool:
     return True
 
 
+def _has_unit_name_in_row2(ws) -> bool:
+    """Check if row 2 contains a unit / institution name.
+
+    System-generated payroll sheets always include a unit name on row 2
+    (e.g. ``单位名称：供销粮油吉林有限公司（外包）``).  Manual sheets have
+    only column headers on rows 2-4 and no unit name, so they should skip
+    column-deletion operations.
+    """
+    for col in range(1, (ws.max_column or 0) + 1):
+        cell = ws.cell(row=2, column=col)
+        if cell.value:
+            name = _strip_label_prefix(str(cell.value).strip())
+            if _is_unit_name(name):
+                return True
+    return False
+
+
 def _is_cell_in_merged_range(ws, row, col):
     for merged_range in ws.merged_cells.ranges:
         if (merged_range.min_row <= row <= merged_range.max_row and
@@ -1327,14 +1344,21 @@ def _insert_signature_to_excel_openpyxl(
                     if computed is not None and not (isinstance(computed, str) and computed.startswith("=")):
                         formula_values[(r, c)] = computed
 
-        # 展开表头合并单元格，使每单元格独立持有值 ——
-        # 必须在列删除前执行，否则合并范围地址会失准
-        _flatten_header_merges(payroll_ws)
-        # 删除用户配置的强制删除列（如"岗位"有数据，但财务打印不需要）
-        _remove_force_delete_columns(payroll_ws, cfg, formula_values)
-        _remove_empty_columns(payroll_ws, cfg, formula_values)
-        # 列删除后根据实际单元格值重新合并相邻相同表头
-        _rebuild_header_merges(payroll_ws)
+        # 展开表头合并单元格 + 列删除 + 重建合并 ——
+        # 仅对系统生成的工资表执行（行 2 有单位名称），手工表跳过列操作避免出错
+        if _has_unit_name_in_row2(payroll_ws):
+            # 必须在列删除前执行，否则合并范围地址会失准
+            _flatten_header_merges(payroll_ws)
+            # 删除用户配置的强制删除列（如"岗位"有数据，但财务打印不需要）
+            _remove_force_delete_columns(payroll_ws, cfg, formula_values)
+            _remove_empty_columns(payroll_ws, cfg, formula_values)
+            # 列删除后根据实际单元格值重新合并相邻相同表头
+            _rebuild_header_merges(payroll_ws)
+        else:
+            logger.info(
+                f"[SIGN] Manual sheet (no unit name in row 2), "
+                f"column-deletion skipped for {excel_path.name}"
+            )
         positions = find_all_signature_positions(payroll_ws, cfg)
         adjust_excel_for_print(payroll_ws, cfg)
         logger.info(f"[SIGN] Found positions: {positions}")
