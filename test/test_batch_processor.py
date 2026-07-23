@@ -13,7 +13,14 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
 
 from app.batch_processor import (
+    _build_output_path,
+    _build_standard_name,
+    _extract_first_row_title,
+    _extract_unit_name,
+    _extract_year_month,
     _get_signature_keywords,
+    _is_standard_filename,
+    _is_unit_name,
     _remove_empty_columns,
     get_payroll_config,
     get_signature_path,
@@ -503,3 +510,132 @@ class TestCleanupEmptyColumns:
 
         assert cell.alignment.horizontal == "right"
         assert cell.alignment.vertical == "center"
+
+    # ── Standard filename rename tests ─────────────────────────────────────
+
+    @staticmethod
+    def _make_ws(cells: dict):
+        """Build a real openpyxl worksheet from a cell-value mapping.
+
+        *cells* maps ``(row, col)`` tuples to cell values, e.g.::
+
+            _make_ws({(1, 1): "吉林大学2026年07月工资表"})
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        for (r, c), val in cells.items():
+            ws.cell(row=r, column=c, value=val)
+        return ws
+
+    def test_is_unit_name(self):
+        """True for strings that look like a unit name."""
+        assert _is_unit_name("吉林大学") is True
+        assert _is_unit_name("北京大学法学院") is True
+        assert _is_unit_name("中国航天科技集团") is True
+        assert _is_unit_name("教育部考试中心") is True
+        assert _is_unit_name("长春市税务局") is True
+        assert _is_unit_name("某某企业") is True
+
+    def test_is_unit_name_false(self):
+        """False for short strings or non-unit text."""
+        assert _is_unit_name("序号") is False
+        assert _is_unit_name("ABC") is False
+        assert _is_unit_name("姓名") is False
+        assert _is_unit_name("基本工资") is False
+        assert _is_unit_name("") is False
+
+    def test_extract_unit_name_from_row2(self):
+        """Row 2 unit name is extracted when present."""
+        ws = self._make_ws({
+            (1, 1): "2026年07月工资表",
+            (2, 1): "吉林大学商学与管理学院",
+        })
+        assert _extract_unit_name(ws) == "吉林大学商学与管理学院"
+
+    def test_extract_unit_name_from_title(self):
+        """Unit name is extracted from the row-1 title when row 2 has none."""
+        ws = self._make_ws({
+            (1, 1): "吉林大学商学与管理学院2026年07月工资表",
+            (2, 1): "序号",
+            (2, 2): "姓名",
+        })
+        assert _extract_unit_name(ws) == "吉林大学商学与管理学院"
+
+    def test_extract_year_month_from_title(self):
+        """Year-month is extracted from the row-1 title."""
+        ws = self._make_ws({
+            (1, 1): "吉林大学商学与管理学院2026年07月工资表",
+        })
+        assert _extract_year_month(ws) == "2026年07月"
+
+    def test_extract_year_month_single_digit_month(self):
+        """Single-digit month is zero-padded."""
+        ws = self._make_ws({
+            (1, 1): "某学院2025年5月工资表",
+        })
+        assert _extract_year_month(ws) == "2025年05月"
+
+    def test_is_standard_filename(self):
+        """Standard format filenames are recognised."""
+        assert _is_standard_filename("吉林大学2026年07月工资表.xlsx") is True
+        assert _is_standard_filename("signed_吉林大学2026年07月工资表.xlsx") is True
+        assert _is_standard_filename("某学院2025年5月工资表.xlsx") is True
+
+    def test_is_standard_filename_nonstandard(self):
+        """Non-standard filenames are rejected."""
+        assert _is_standard_filename("tddd_dialog_abc123.xlsx") is False
+        assert _is_standard_filename("2465ea5e.xlsx") is False
+        assert _is_standard_filename("工资表.xlsx") is False
+        assert _is_standard_filename("2026年07月工资表.xlsx") is False
+
+    def test_build_output_path_renames_nonstandard(self, tmp_path):
+        """Non-standard source filename → signed standard name."""
+        ws = self._make_ws({
+            (1, 1): "吉林大学商学与管理学院2026年07月工资表",
+        })
+        src = tmp_path / "2465ea5e.xlsx"
+        src.touch()
+        dst = tmp_path / "signed_2465ea5e.xlsx"
+        result = _build_output_path(src, dst, ws)
+        assert result.name == "signed_吉林大学商学与管理学院2026年07月工资表.xlsx"
+        assert result.parent == dst.parent
+
+    def test_build_output_path_skips_when_standard(self, tmp_path):
+        """Source already standard → unchanged."""
+        ws = self._make_ws({
+            (1, 1): "吉林大学商学与管理学院2026年07月工资表",
+        })
+        standard_name = "吉林大学2026年07月工资表.xlsx"
+        src = tmp_path / standard_name
+        src.touch()
+        dst = tmp_path / "signed_吉林大学2026年07月工资表.xlsx"
+        result = _build_output_path(src, dst, ws)
+        assert result == dst
+
+    def test_build_output_path_skips_when_no_unit(self, tmp_path):
+        """No unit name in worksheet → no rename."""
+        ws = self._make_ws({
+            (1, 1): "2026年07月工资表",
+            (2, 1): "序号",
+            (2, 2): "姓名",
+            (2, 3): "基本工资",
+        })
+        src = tmp_path / "2465ea5e.xlsx"
+        src.touch()
+        dst = tmp_path / "signed_2465ea5e.xlsx"
+        result = _build_output_path(src, dst, ws)
+        assert result == dst
+
+    def test_build_output_path_uses_tddd_fallback_when_no_unit(self, tmp_path):
+        """No unit, but tddd_dialog source → legacy fallback applies."""
+        ws = self._make_ws({
+            (1, 1): "2026年派遣员工5月工资明细表（林下参）",
+        })
+        src = tmp_path / "tddd_dialog_abc123.xlsx"
+        src.touch()
+        dst = tmp_path / "signed_tddd_dialog_abc123.xlsx"
+        result = _build_output_path(src, dst, ws)
+        assert "signed_tddd_dialog_abc123" in result.name
+        assert "2026年派遣员工5月工资明细表" in result.name
+        assert result.name.endswith(".xlsx")

@@ -6,6 +6,7 @@ Handles batch downloading of attachments from multiple approval instances.
 
 import json
 import logging
+import re
 import platform
 import subprocess
 from datetime import datetime
@@ -472,6 +473,134 @@ def find_all_signature_positions(ws, config: Optional[dict] = None) -> Dict[str,
     return positions
 
 
+# ── Standard filename helpers ──────────────────────────────────────────────
+
+# Keywords that identify a cell value as a unit/institution name.
+_UNIT_KEYWORDS = frozenset({
+    "大学", "学院", "公司", "集团", "学校", "委员会",
+    "研究院", "中心", "局", "处", "厂", "社", "所", "企业",
+})
+
+
+def _is_unit_name(text: str) -> bool:
+    if len(text) < 3:
+        return False
+    return any(kw in text for kw in _UNIT_KEYWORDS)
+
+
+def _extract_unit_name(ws) -> Optional[str]:
+    """Try to extract the unit name from a payroll worksheet.
+
+    Resolution order:
+      1. Scan row 2 – if any cell value passes :func:`_is_unit_name`, return it.
+      2. Otherwise inspect row 1.  If the title matches the pattern
+         ``XXX\\d{4}年…``, extract the leading text and check it against
+         :func:`_is_unit_name`.
+      3. Return ``None`` if no unit name is found.
+    """
+    for col in range(1, (ws.max_column or 0) + 1):
+        cell = ws.cell(row=2, column=col)
+        if cell.value and _is_unit_name(str(cell.value).strip()):
+            return str(cell.value).strip()
+
+    title = None
+    for col in range(1, (ws.max_column or 0) + 1):
+        cell = ws.cell(row=1, column=col)
+        if cell.value:
+            title = str(cell.value).strip()
+            break
+
+    if title:
+        # Pattern: <unit-name><digits>年… — grab everything before the year digits
+        m = re.match(r'^(.+?)\d{4}年', title)
+        if m:
+            candidate = m.group(1).strip()
+            if candidate and _is_unit_name(candidate):
+                return candidate
+
+    return None
+
+
+def _extract_year_month(ws) -> Optional[str]:
+    """Extract a ``YYYY年MM月`` string from the row-1 title.
+
+    Tries two patterns in order:
+      1. ``\\d{4}年\\d{1,2}月``  (e.g. ``2026年07月``)
+      2. ``YYYYMM`` — six consecutive digits where the last two are 01‑12
+
+    The month component is always zero-padded to two digits.
+    Returns ``None`` when neither pattern is found.
+    """
+    title = None
+    for col in range(1, (ws.max_column or 0) + 1):
+        cell = ws.cell(row=1, column=col)
+        if cell.value:
+            title = str(cell.value).strip()
+            break
+
+    if title:
+        # 1) 年/月 格式
+        m = re.search(r'(\d{4})年(\d{1,2})月', title)
+        if m:
+            year = m.group(1)
+            month = m.group(2).zfill(2)
+            return f"{year}年{month}月"
+
+        # 2) YYYYMM 连写格式
+        for m in re.finditer(r'(?<!\d)(\d{4})(\d{2})(?!\d)', title):
+            y, mo = m.group(1), m.group(2)
+            if 1 <= int(mo) <= 12:
+                return f"{y}年{mo}月"
+
+    return None
+
+
+def _is_standard_filename(name: str) -> bool:
+    """Return True if *name* already contains a unit name + year-month.
+
+    A "standard" payroll filename carries at least:
+      1. A recognisable unit/organisation name at the start
+      2. A year-month indicator — either ``YYYY年MM月`` or ``YYYYMM``
+         (6 consecutive digits, possibly after a short alphanumeric prefix)
+
+    Suffixes such as 工资, 工资表 and 系统 are all accepted — only the
+    presence of a unit name **and** a year-month matters.
+    """
+    stem = Path(name).stem
+    if stem.lower().startswith("signed_"):
+        stem = stem[7:]
+
+    # 1) YYYY年MM月 格式
+    m = re.search(r'(\d{4})年\d{1,2}月', stem)
+    if m:
+        unit_candidate = stem[: m.start()]
+        return bool(unit_candidate and _is_unit_name(unit_candidate))
+
+    # 2) YYYYMM 连写格式
+    m = re.search(r'(\d{6})', stem)
+    if m:
+        unit_candidate = stem[: m.start()]
+        return bool(unit_candidate and _is_unit_name(unit_candidate))
+
+    return False
+
+
+def _build_standard_name(excel_path: Path, ws) -> Optional[str]:
+    """Build a standard payroll filename from worksheet metadata.
+
+    Uses :func:`_extract_unit_name` and :func:`_extract_year_month`; returns
+    ``None`` when either piece is missing.
+    """
+    unit = _extract_unit_name(ws)
+    ym = _extract_year_month(ws)
+    if unit and ym:
+        return f"{unit}{ym}工资表.xlsx"
+    return None
+
+
+# ── Legacy helpers ─────────────────────────────────────────────────────────
+
+
 def _extract_first_row_title(ws) -> Optional[str]:
     """Find the first non-empty cell in row 1 as the table title."""
     for col in range(1, ws.max_column + 1):
@@ -482,14 +611,29 @@ def _extract_first_row_title(ws) -> Optional[str]:
 
 
 def _build_output_path(excel_path: Path, output_path: Path, ws) -> Path:
-    """If the original file is an unrenamed export (tddd_dialog*), append row-1 title."""
+    """Build the final signed output path with optional standard renaming.
+
+    Resolution order:
+      1. If the source filename does **not** already match the standard
+         payroll format, try to build one from worksheet metadata.
+      2. Fallback: for raw Feishu exports (``tddd_dialog*``), append the
+         row-1 title to the filename so it becomes distinguishable.
+      3. Return the original *output_path* unchanged.
+    """
     original_name = excel_path.name
+
+    if not _is_standard_filename(original_name):
+        standard = _build_standard_name(excel_path, ws)
+        if standard:
+            return output_path.parent / f"signed_{standard}"
+
     if original_name.lower().startswith("tddd_dialog"):
         title = _extract_first_row_title(ws)
         if title:
             safe_title = sanitize_dir_name(title)
             new_name = f"signed_{Path(original_name).stem}-{safe_title}.xlsx"
             return output_path.parent / new_name
+
     return output_path
 
 
