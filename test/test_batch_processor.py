@@ -399,10 +399,10 @@ class TestCleanupEmptyColumns:
         wb = Workbook()
         ws = wb.active
         ws.title = "Sheet1"
-        ws.cell(row=1, column=1, value="Header A")
-        ws.cell(row=2, column=1, value="data A")
-        ws.cell(row=1, column=4, value="Header D")
-        ws.cell(row=2, column=4, value="data D")
+        ws.cell(row=4, column=1, value="Header A")
+        ws.cell(row=5, column=1, value="data A")
+        ws.cell(row=4, column=4, value="Header D")
+        ws.cell(row=5, column=4, value="data D")
 
         assert ws.max_column == 4
 
@@ -410,8 +410,8 @@ class TestCleanupEmptyColumns:
         _remove_empty_columns(ws, cfg)
 
         assert ws.max_column == 2, f"Expected 2 columns, got {ws.max_column}"
-        assert ws.cell(row=1, column=1).value == "Header A"
-        assert ws.cell(row=1, column=2).value == "Header D"
+        assert ws.cell(row=4, column=1).value == "Header A"
+        assert ws.cell(row=4, column=2).value == "Header D"
 
     def test_remove_empty_columns_preserves_keyword(self):
         """Test that a column with only signature keywords is preserved
@@ -419,19 +419,19 @@ class TestCleanupEmptyColumns:
         wb = Workbook()
         ws = wb.active
         ws.title = "Sheet1"
-        ws.cell(row=1, column=1, value="Name")
-        ws.cell(row=2, column=1, value="张三")
-        ws.cell(row=1, column=3, value="Amount")
-        ws.cell(row=2, column=3, value="5000")
-        # Column B has only a signature keyword
-        ws.cell(row=2, column=2, value="总经理签字")
+        ws.cell(row=4, column=1, value="Name")
+        ws.cell(row=5, column=1, value="张三")
+        ws.cell(row=4, column=3, value="Amount")
+        ws.cell(row=5, column=3, value="5000")
+        # Column B has only a signature keyword in the data area
+        ws.cell(row=5, column=2, value="总经理签字")
 
         cfg = get_payroll_config()
         _remove_empty_columns(ws, cfg)
 
         # Column B deleted; the keyword moves into C (target=D→C after shift)
         assert ws.max_column == 2
-        assert ws.cell(row=2, column=2).value == "总经理签字"
+        assert ws.cell(row=5, column=2).value == "总经理签字"
 
     def test_remove_empty_columns_keyword_appends_at_end(self):
         """Test that a keyword-only column with no data to the right
@@ -439,57 +439,57 @@ class TestCleanupEmptyColumns:
         wb = Workbook()
         ws = wb.active
         ws.title = "Sheet1"
-        ws.cell(row=1, column=1, value="Name")
-        ws.cell(row=2, column=1, value="张三")
+        ws.cell(row=4, column=1, value="Name")
+        ws.cell(row=5, column=1, value="张三")
         # Column B has only a signature keyword, no data columns to the right
-        ws.cell(row=2, column=2, value="分管领导审核")
+        ws.cell(row=5, column=2, value="分管领导审核")
 
         cfg = get_payroll_config()
         _remove_empty_columns(ws, cfg)
 
         # Keyword written to max_column+1, then column B deleted → col 2 is the new column
         assert ws.max_column == 2
-        assert ws.cell(row=2, column=2).value == "分管领导审核"
+        assert ws.cell(row=5, column=2).value == "分管领导审核"
 
     def test_remove_empty_columns_no_empty_columns_noop(self):
         """Test that when all columns have real data, nothing changes."""
         wb = Workbook()
         ws = wb.active
         ws.title = "Sheet1"
-        ws.cell(row=1, column=1, value="Name")
-        ws.cell(row=1, column=2, value="Amount")
-        ws.cell(row=2, column=1, value="张三")
-        ws.cell(row=2, column=2, value="5000")
+        ws.cell(row=4, column=1, value="Name")
+        ws.cell(row=4, column=2, value="Amount")
+        ws.cell(row=5, column=1, value="张三")
+        ws.cell(row=5, column=2, value="5000")
 
         cfg = get_payroll_config()
         _remove_empty_columns(ws, cfg)
 
         assert ws.max_column == 2
-        assert ws.cell(row=1, column=1).value == "Name"
-        assert ws.cell(row=1, column=2).value == "Amount"
-        assert ws.cell(row=2, column=1).value == "张三"
-        assert ws.cell(row=2, column=2).value == "5000"
+        assert ws.cell(row=4, column=1).value == "Name"
+        assert ws.cell(row=4, column=2).value == "Amount"
+        assert ws.cell(row=5, column=1).value == "张三"
+        assert ws.cell(row=5, column=2).value == "5000"
 
     def test_remove_empty_columns_with_merged_cells(self):
         """Test that merged cells are preserved when deleting empty columns."""
         wb = Workbook()
         ws = wb.active
         ws.title = "Sheet1"
-        # Merge A1:B2 — keep col B alive to avoid affecting the merge
-        ws.merge_cells("A1:B2")
-        ws.cell(row=1, column=1, value="Merged Header")
-        ws.cell(row=3, column=2, value="__keep__")
+        # Merge A4:B5 — keep col B alive to avoid affecting the merge
+        ws.merge_cells("A4:B5")
+        ws.cell(row=4, column=1, value="Merged Header")
+        ws.cell(row=6, column=2, value="__keep__")
         # Column C is completely empty — will be deleted
-        ws.cell(row=1, column=4, value="End")
+        ws.cell(row=4, column=4, value="End")
 
         cfg = get_payroll_config()
         _remove_empty_columns(ws, cfg)
 
         # Column C deleted, D shifted left
         assert ws.max_column == 3
-        assert ws.cell(row=1, column=3).value == "End"
+        assert ws.cell(row=4, column=3).value == "End"
         # Merged cell range preserved
-        assert any("A1:B2" in str(mc) for mc in ws.merged_cells.ranges)
+        assert any("A4:B5" in str(mc) for mc in ws.merged_cells.ranges)
 
     def test_zhibiaoren_right_alignment(self):
         """Test that a cell containing '制表人' gets right/center alignment,

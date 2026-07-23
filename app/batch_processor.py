@@ -285,19 +285,22 @@ def _get_signature_keywords(cfg: dict) -> set:
 def _remove_empty_columns(ws, cfg) -> None:
     """Delete columns with no real data, preserving signature keywords.
 
-    Scans columns right-to-left. If a column has no non-None values at all,
-    it's deleted unconditionally. If all its non-None values are signature
-    keywords (from _get_signature_keywords), the keywords are copied to the
-    nearest non-empty column on the right (or appended at the end), then
-    the source column is deleted.
+    Scans columns right-to-left. **Header rows (1‑3) are ignored** when
+    determining whether a column is empty — only the data area (row 4+)
+    is considered.  Columns whose data rows are completely *None*, or
+    whose only non‑*None* values are signature keywords, are deleted.
+    Signature keywords are copied to the nearest non‑empty column on the
+    right first (or appended at the end).
     """
     keywords = _get_signature_keywords(cfg)
     removed = []
     moved = []
 
+    DATA_START = 4  # skip title/unit/column-header rows
+
     for col in range(ws.max_column, 0, -1):
         non_empty = {}
-        for row in range(1, ws.max_row + 1):
+        for row in range(DATA_START, ws.max_row + 1):
             v = ws.cell(row=row, column=col).value
             if v is not None:
                 non_empty[row] = str(v)
@@ -314,13 +317,13 @@ def _remove_empty_columns(ws, cfg) -> None:
         if not all_kw:
             continue  # has real data, keep
 
-        # Find nearest non-empty column to the right
+        # Find nearest non-empty column to the right (data area only)
         target = None
         for rc in range(col + 1, ws.max_column + 1):
             has_data = any(
                 ws.cell(row=r, column=rc).value is not None
                 and not any(kw in str(ws.cell(row=r, column=rc).value) for kw in keywords)
-                for r in range(1, ws.max_row + 1)
+                for r in range(DATA_START, ws.max_row + 1)
             )
             if has_data:
                 target = rc
@@ -488,6 +491,14 @@ def _is_unit_name(text: str) -> bool:
     return any(kw in text for kw in _UNIT_KEYWORDS)
 
 
+def _strip_label_prefix(text: str) -> str:
+    """Strip a prefixed label such as ``名称：XXX`` → ``XXX``."""
+    m = re.match(r'^[^：]+：\s*', text)
+    if m:
+        return text[m.end():]
+    return text
+
+
 def _extract_unit_name(ws) -> Optional[str]:
     """Try to extract the unit name from a payroll worksheet.
 
@@ -500,8 +511,10 @@ def _extract_unit_name(ws) -> Optional[str]:
     """
     for col in range(1, (ws.max_column or 0) + 1):
         cell = ws.cell(row=2, column=col)
-        if cell.value and _is_unit_name(str(cell.value).strip()):
-            return str(cell.value).strip()
+        if cell.value:
+            name = _strip_label_prefix(str(cell.value).strip())
+            if _is_unit_name(name):
+                return name
 
     title = None
     for col in range(1, (ws.max_column or 0) + 1):
