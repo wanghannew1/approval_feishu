@@ -35,5 +35,10 @@
             {"source": "部长、分管副总签字", "target": "分管领导审核"},
             {"source": "部长签字", "target": "分管领导审核"}
         ]
+    },
+
+    "force_delete_columns": {
+        "description": "即使有数据也强制删除的列（按行3表头名称匹配），财务打印不需要这些列",
+        "columns": ["岗位"]
     }
 }

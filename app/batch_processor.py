@@ -621,6 +621,88 @@ def _remove_empty_columns(ws, cfg, formula_values: Optional[Dict] = None) -> Non
             logger.info(f"[CLEANUP] Moved '{v}' from col {s} to col {d}")
 
 
+def _remove_force_delete_columns(ws, cfg, formula_values: Optional[Dict] = None) -> None:
+    """Delete columns that match configured header names, even if they have data.
+
+    Some columns (e.g. ``岗位``) contain real values per employee but the
+    finance department does not need them in the printed output.  This
+    function removes them in the same fashion as empty‑column deletion,
+    preserving only formula values (e.g. per‑employee subtotals) by moving
+    them to the nearest non‑deleted column to the right.
+
+    Must be called after ``_flatten_header_merges`` and before
+    ``_rebuild_header_merges`` so that row‑3 header names are reliable
+    and merged ranges are not yet rebuilt.
+    """
+    force_cfg = cfg.get("force_delete_columns", {})
+    force_headers = {h.strip() for h in force_cfg.get("columns", [])}
+    if not force_headers:
+        return
+
+    # Identify columns to delete by matching row‑3 header text
+    cols_to_delete = set()
+    for col in range(1, ws.max_column + 1):
+        val = ws.cell(row=3, column=col).value
+        if val and str(val).strip() in force_headers:
+            cols_to_delete.add(col)
+
+    if not cols_to_delete:
+        return
+
+    logger.info(f"[FORCE-DELETE] Headers to force-delete: {force_headers} "
+                f"(cols {sorted(cols_to_delete)})")
+
+    DATA_START = 4
+
+    # Process right‑to‑left so that column indices remain valid
+    for col in sorted(cols_to_delete, reverse=True):
+        # Collect formula values that need to survive
+        formula_vals: Dict[int, Any] = {}
+        for row in range(DATA_START, ws.max_row + 1):
+            v = ws.cell(row=row, column=col).value
+            if v not in (None, ''):
+                raw = str(v)
+                if raw.startswith('='):
+                    computed = formula_values.get((row, col)) if formula_values else None
+                    if computed is not None:
+                        formula_vals[row] = computed
+
+        # Move formula values to a safe column (skip other force‑deleted cols)
+        if formula_vals:
+            target = None
+            for tc in range(col + 1, ws.max_column + 1):
+                if tc not in cols_to_delete:
+                    target = tc
+                    break
+            if target is None:
+                target = ws.max_column + 1
+
+            merge_snapshot = list(ws.merged_cells.ranges)
+            for row, val in formula_vals.items():
+                cell = ws.cell(row=row, column=target)
+                if isinstance(cell, MergedCell):
+                    for mr in list(ws.merged_cells.ranges):
+                        mc_min, mc_min_row, mc_max, mc_max_row = mr.bounds
+                        if mc_min_row <= row <= mc_max_row and mc_min <= target <= mc_max:
+                            try:
+                                ws.unmerge_cells(str(mr))
+                            except KeyError:
+                                pass
+                            break
+                tgt = ws.cell(row=row, column=target)
+                tgt.value = val
+                src_cell = ws.cell(row=row, column=col)
+                if tgt is not src_cell:
+                    tgt.font = copy(src_cell.font)
+                    tgt.alignment = copy(src_cell.alignment)
+                    tgt.border = copy(src_cell.border)
+                    tgt.number_format = copy(src_cell.number_format)
+
+        _delete_cols_with_merge(ws, col)
+
+    logger.info(f"[FORCE-DELETE] Deleted columns: {sorted(cols_to_delete)}")
+
+
 def _apply_normalization_rules(cell_value: str, rules: list) -> str:
     """Apply text normalization rules to a cell value."""
     for rule in rules:
@@ -1248,6 +1330,8 @@ def _insert_signature_to_excel_openpyxl(
         # 展开表头合并单元格，使每单元格独立持有值 ——
         # 必须在列删除前执行，否则合并范围地址会失准
         _flatten_header_merges(payroll_ws)
+        # 删除用户配置的强制删除列（如"岗位"有数据，但财务打印不需要）
+        _remove_force_delete_columns(payroll_ws, cfg, formula_values)
         _remove_empty_columns(payroll_ws, cfg, formula_values)
         # 列删除后根据实际单元格值重新合并相邻相同表头
         _rebuild_header_merges(payroll_ws)
