@@ -9,6 +9,7 @@ import logging
 import re
 import platform
 import subprocess
+from copy import copy
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -16,7 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
 from openpyxl.drawing.image import Image as XLImage
-from openpyxl.styles import Alignment, Font
+from openpyxl.styles import Alignment, Border, Font, Side
 from openpyxl.utils import get_column_letter
 
 from app.feishu_api import download_file, extract_attachments, get_instance_detail, parse_form
@@ -283,7 +284,241 @@ def _get_signature_keywords(cfg: dict) -> set:
     return keywords
 
 
-def _remove_empty_columns(ws, cfg) -> None:
+def _flatten_header_merges(ws, header_rows: int = 5) -> None:
+    """Unmerge all header-area merges and fill every cell with the anchor value.
+
+    Must be called **before** ``delete_cols``, while merged range addresses
+    still match the actual cell positions.  After flattening, column deletion
+    shifts ordinary cell values correctly — there are no stale merge ranges
+    to cause ``MergedCell`` errors.
+
+    After flattening, rows 4–*header_rows* (sub‑header area) are cleaned so
+    cells whose value equals the row‑3 column header (artefacts from vertical
+    merges like ``D3:D5``) are cleared back to ``None``.  Legitimate sub‑header
+    values (e.g. ``Q4`` = ``"养老"`` under ``Q3`` = ``"扣款明细"``) are kept.
+    """
+    for mr in list(ws.merged_cells.ranges):
+        mc, mr_min, mxc, mr_max = mr.bounds
+        if mr_min > header_rows:
+            continue
+        anchor_val = ws.cell(row=mr_min, column=mc).value
+        # Snapshot original formatting before unmerge
+        src = ws.cell(row=mr_min, column=mc)
+        fmt = {
+            'font': copy(src.font),
+            'alignment': copy(src.alignment),
+            'border': copy(src.border),
+        }
+        try:
+            ws.unmerge_cells(str(mr))
+        except KeyError:
+            pass
+        for r in range(mr_min, mr_max + 1):
+            for c in range(mc, mxc + 1):
+                cell = ws.cell(row=r, column=c)
+                if cell.value is None:
+                    try:
+                        cell.value = anchor_val
+                    except AttributeError:
+                        pass
+                # Restore formatting to all cells that were MergedCell
+                cell.font = copy(fmt['font'])
+                cell.alignment = copy(fmt['alignment'])
+                cell.border = copy(fmt['border'])
+
+    # Clear duplicate header labels from vertical‑merge rows (4..header_rows)
+    for row in range(header_rows, 3, -1):
+        for col in range(1, ws.max_column + 1):
+            cell = ws.cell(row=row, column=col)
+            above = ws.cell(row=3, column=col).value
+            if cell.value is not None and cell.value == above:
+                cell.value = None
+
+
+def _rebuild_header_merges(ws, header_rows: int = 5) -> None:
+    """Re‑build header merges from flat cell values (rows 1‑*header_rows*).
+
+    Follows the merge algorithm from ``virtual-header-generation.md``:
+    1. Row‑4 horizontal merge  — within each row‑3 group, merge adjacent
+       row‑4 cells with the same value.
+    2. Vertical merges          — three cases (A: 3‑row, B: 2‑row, C: 2‑row).
+    3. Catch‑all 3‑row merge    — rows 4‑5 both empty, merge rows 3‑5.
+    4. Row‑3 horizontal merge   — last, so row‑4 grouping is unaffected.
+
+    Row‑5 horizontal merging is **not** performed — original sub‑sub‑headers
+    (e.g. "单位"/"个人") are always individual cells.
+
+    Precondition: ``_flatten_header_merges`` must have been called before
+    column deletion so that every header cell holds its own value.
+    """
+    H = header_rows
+    max_col = ws.max_column
+    _cv = lambda r, c: ws.cell(row=r, column=c).value
+    hmerged = set()  # (row, col) of already-merged anchor cells
+
+    # ── 1. Row‑4 horizontal merge (within row‑3 groups) ──
+    vi = 1
+    while vi <= max_col:
+        r3v = _cv(3, vi)
+        # find row‑3 group [vi, vj)
+        vj = vi + 1
+        while vj <= max_col and _cv(3, vj) == r3v:
+            vj += 1
+        # in this group, merge adjacent row‑4 same values
+        vk = vi
+        while vk < vj:
+            r4v = _cv(4, vk)
+            if r4v in (None, ''):
+                vk += 1
+                continue
+            vl = vk + 1
+            while vl < vj and _cv(4, vl) == r4v:
+                vl += 1
+            if vl - 1 > vk:
+                try:
+                    ws.merge_cells(start_row=4, start_column=vk,
+                                   end_row=4, end_column=vl - 1)
+                except Exception:
+                    pass
+                hmerged.update((4, c) for c in range(vk, vl))
+            vk = vl
+        vi = vj
+
+    # ── 2. Vertical merges (3 cases) ──
+    for vi in range(1, max_col + 1):
+        if (4, vi) in hmerged or (5, vi) in hmerged:
+            continue
+        r3v, r4v, r5v = _cv(3, vi), _cv(4, vi), _cv(5, vi)
+        if r4v and r4v == r5v:
+            if r3v and r3v == r4v:
+                # Case A — merge 3 rows
+                try:
+                    ws.merge_cells(start_row=3, start_column=vi,
+                                   end_row=H, end_column=vi)
+                except Exception:
+                    pass
+                hmerged.update((r, vi) for r in range(3, H + 1))
+            else:
+                # Case B — merge 2 rows (4-5)
+                try:
+                    ws.merge_cells(start_row=4, start_column=vi,
+                                   end_row=H, end_column=vi)
+                except Exception:
+                    pass
+                hmerged.update((r, vi) for r in range(4, H + 1))
+        elif r4v and not r5v:
+            # Case C — merge 2 rows (4-5)
+            try:
+                ws.merge_cells(start_row=4, start_column=vi,
+                               end_row=H, end_column=vi)
+            except Exception:
+                pass
+            hmerged.update((r, vi) for r in range(4, H + 1))
+
+    # ── 3. Catch‑all 3‑row merge ──
+    for vi in range(1, max_col + 1):
+        if any((r, vi) in hmerged for r in range(3, H + 1)):
+            continue
+        r4v, r5v = _cv(4, vi), _cv(5, vi)
+        if not r4v and not r5v:
+            try:
+                ws.merge_cells(start_row=3, start_column=vi,
+                               end_row=H, end_column=vi)
+            except Exception:
+                pass
+
+    # ── 4. Row‑3 horizontal merge (last) ──
+    vi = 1
+    while vi <= max_col:
+        r3v = _cv(3, vi)
+        if r3v in (None, ''):
+            vi += 1
+            continue
+        vj = vi + 1
+        while vj <= max_col and _cv(3, vj) == r3v:
+            vj += 1
+        if vj - 1 > vi:
+            try:
+                ws.merge_cells(start_row=3, start_column=vi,
+                               end_row=3, end_column=vj - 1)
+            except Exception:
+                pass
+        vi = vj
+
+    # ── 5. Merge row 1 (title) and row 2 (org name + date) — keep existing
+    #     horizontal-merge logic only for rows 1-2 (simple single-row merges) ──
+    for row in [1, 2]:
+        start = None
+        prev_val = None
+        for col in range(1, ws.max_column + 1):
+            v = _cv(row, col)
+            if v is not None and v != '' and v == prev_val:
+                continue
+            if start is not None and col - 1 > start:
+                try:
+                    ws.merge_cells(
+                        start_row=row, start_column=start,
+                        end_row=row, end_column=col - 1
+                    )
+                except Exception:
+                    pass
+            start = col if (v is not None and v != '') else None
+            prev_val = v
+        if start is not None and ws.max_column > start:
+            try:
+                ws.merge_cells(
+                    start_row=row, start_column=start,
+                    end_row=row, end_column=ws.max_column
+                )
+            except Exception:
+                pass
+
+
+def _delete_cols_with_merge(ws, col, amount=1, saved_all=None):
+    """Delete *amount* columns, then restore every merged range correctly.
+
+    openpyxl's ``delete_cols`` does **not** adjust existing merged ranges
+    — they keep their original column-letter bounds, leaving stale
+    ``MergedCell`` objects behind.
+
+    This function takes a snapshot of **all** current merged ranges,
+    deletes the columns, then rebuilds each range with the deleted span
+    removed (or shifted left for ranges entirely to the right).
+
+    If *saved_all* is provided (a full snapshot obtained before any
+    explicit ``unmerge_cells`` call), it is used instead of taking a new
+    snapshot — needed when the caller has already unmerged some ranges
+    before deletion.
+    """
+    if saved_all is None:
+        saved_all = list(ws.merged_cells.ranges)
+
+    ws.delete_cols(col, amount)
+
+    for mr in list(ws.merged_cells.ranges):
+        try:
+            ws.unmerge_cells(str(mr))
+        except Exception:
+            pass
+
+    for mr in saved_all:
+        mc, r0, mxc, rmax = mr.bounds
+        if mxc < col:               # entirely left — unchanged
+            new_mc, new_mxc = mc, mxc
+        elif mc >= col + amount:    # entirely right — shift left
+            new_mc, new_mxc = mc - amount, mxc - amount
+        else:                       # intersects — shrink + shift
+            new_mc = mc if mc < col else max(col, mc - amount)
+            new_mxc = mxc if mxc < col else mxc - amount
+        if new_mc <= new_mxc:
+            try:
+                ws.merge_cells(start_row=r0, start_column=new_mc,
+                               end_row=rmax, end_column=new_mxc)
+            except Exception:
+                pass
+
+
+def _remove_empty_columns(ws, cfg, formula_values: Optional[Dict] = None) -> None:
     """Delete columns with no real data, preserving signature keywords.
 
     Scans columns right-to-left. **Header rows (1‑3) are ignored** when
@@ -296,8 +531,11 @@ def _remove_empty_columns(ws, cfg) -> None:
     * signature keywords, **or**
     * formulas (strings starting with ``=``).
 
-    Keywords and formulas are copied to the nearest non‑empty column on
-    the right first (or appended at the end) so they are never lost.
+    Keywords and **computed formula values** are copied to the nearest
+    non‑empty column on the right first (or appended at the end) so they
+    are never lost.  *formula_values* maps ``(row, col) → computed_value``
+    (loaded with ``data_only=True``); when present, the computed number is
+    written instead of the raw formula string.
     """
     keywords = _get_signature_keywords(cfg)
     removed = []
@@ -320,7 +558,7 @@ def _remove_empty_columns(ws, cfg) -> None:
                 non_empty[row] = str(v)
 
         if not non_empty:
-            ws.delete_cols(col, 1)
+            _delete_cols_with_merge(ws, col)
             removed.append(col)
             continue
 
@@ -340,8 +578,20 @@ def _remove_empty_columns(ws, cfg) -> None:
         if target is None:
             target = ws.max_column + 1
 
+        # Snapshot ALL merged ranges BEFORE any unmerge so that even
+        # ranges we're about to unmerge are captured and restored
+        # correctly after column deletion.
+        merge_snapshot = list(ws.merged_cells.ranges)
+
         for row, val in non_empty.items():
+            # Evaluate formulas to static values to avoid broken references
+            if _is_formula(val):
+                computed = formula_values.get((row, col)) if formula_values else None
+                if computed is not None:
+                    val = computed
+
             cell = ws.cell(row=row, column=target)
+            src_cell = ws.cell(row=row, column=col)
             if isinstance(cell, MergedCell):
                 for mr in list(ws.merged_cells.ranges):
                     mc_min, mc_min_row, mc_max, mc_max_row = mr.bounds
@@ -351,10 +601,17 @@ def _remove_empty_columns(ws, cfg) -> None:
                         except KeyError:
                             pass
                         break
-            ws.cell(row=row, column=target).value = val
+            tgt = ws.cell(row=row, column=target)
+            tgt.value = val
+            # Copy formatting from the source (being deleted) to the target
+            if tgt is not src_cell:
+                tgt.font = copy(src_cell.font)
+                tgt.alignment = copy(src_cell.alignment)
+                tgt.border = copy(src_cell.border)
+                tgt.number_format = copy(src_cell.number_format)
             moved.append((col, target, val))
 
-        ws.delete_cols(col, 1)
+        _delete_cols_with_merge(ws, col, saved_all=merge_snapshot)
         removed.append(col)
 
     if removed:
@@ -816,7 +1073,8 @@ def _hide_columns(ws):
     for col in range(1, ws.max_column + 1):
         cell = ws.cell(row=header_row, column=col)
         col_letter = get_column_letter(col)
-        hidden = ws.column_dimensions[col_letter].hidden
+        hidden = False  # reset — after column deletion, original hidden
+                       # states no longer correspond to current data
         if cell.value and str(cell.value).strip() in headers_to_hide:
             hidden = True
         ws.column_dimensions[col_letter].hidden = hidden
@@ -975,7 +1233,24 @@ def _insert_signature_to_excel_openpyxl(
                     if normalized != cell.value:
                         cell.value = normalized
 
-        _remove_empty_columns(payroll_ws, cfg)
+        # 加载 data_only 版本获取公式计算值
+        wb_data = load_workbook(str(excel_path), data_only=True)
+        payroll_ws_data = wb_data[payroll_ws.title]
+        formula_values = {}
+        for r in range(1, payroll_ws.max_row + 1):
+            for c in range(1, payroll_ws.max_column + 1):
+                v = payroll_ws.cell(row=r, column=c).value
+                if isinstance(v, str) and v.startswith("="):
+                    computed = payroll_ws_data.cell(row=r, column=c).value
+                    if computed is not None and not (isinstance(computed, str) and computed.startswith("=")):
+                        formula_values[(r, c)] = computed
+
+        # 展开表头合并单元格，使每单元格独立持有值 ——
+        # 必须在列删除前执行，否则合并范围地址会失准
+        _flatten_header_merges(payroll_ws)
+        _remove_empty_columns(payroll_ws, cfg, formula_values)
+        # 列删除后根据实际单元格值重新合并相邻相同表头
+        _rebuild_header_merges(payroll_ws)
         positions = find_all_signature_positions(payroll_ws, cfg)
         adjust_excel_for_print(payroll_ws, cfg)
         logger.info(f"[SIGN] Found positions: {positions}")
