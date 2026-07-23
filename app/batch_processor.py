@@ -287,16 +287,28 @@ def _remove_empty_columns(ws, cfg) -> None:
 
     Scans columns right-to-left. **Header rows (1‑3) are ignored** when
     determining whether a column is empty — only the data area (row 4+)
-    is considered.  Columns whose data rows are completely *None*, or
-    whose only non‑*None* values are signature keywords, are deleted.
-    Signature keywords are copied to the nearest non‑empty column on the
-    right first (or appended at the end).
+    is considered.
+
+    A column is deleted when **all** its data-area values are:
+
+    * ``None``, **or**
+    * signature keywords, **or**
+    * formulas (strings starting with ``=``).
+
+    Keywords and formulas are copied to the nearest non‑empty column on
+    the right first (or appended at the end) so they are never lost.
     """
     keywords = _get_signature_keywords(cfg)
     removed = []
     moved = []
 
     DATA_START = 4  # skip title/unit/column-header rows
+
+    def _is_formula(val: str) -> bool:
+        return val.startswith("=")
+
+    def _is_removable(val: str) -> bool:
+        return any(kw in val for kw in keywords) or _is_formula(val)
 
     for col in range(ws.max_column, 0, -1):
         non_empty = {}
@@ -310,23 +322,17 @@ def _remove_empty_columns(ws, cfg) -> None:
             removed.append(col)
             continue
 
-        all_kw = all(
-            any(kw in val for kw in keywords)
-            for val in non_empty.values()
-        )
-        if not all_kw:
-            continue  # has real data, keep
+        if not all(_is_removable(v) for v in non_empty.values()):
+            continue
 
-        # Find nearest non-empty column to the right (data area only)
         target = None
         for rc in range(col + 1, ws.max_column + 1):
-            has_data = any(
-                ws.cell(row=r, column=rc).value is not None
-                and not any(kw in str(ws.cell(row=r, column=rc).value) for kw in keywords)
-                for r in range(DATA_START, ws.max_row + 1)
-            )
-            if has_data:
-                target = rc
+            for r in range(DATA_START, ws.max_row + 1):
+                v = ws.cell(row=r, column=rc).value
+                if v is not None and not _is_removable(str(v)):
+                    target = rc
+                    break
+            if target is not None:
                 break
 
         if target is None:

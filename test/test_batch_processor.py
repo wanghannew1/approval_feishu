@@ -451,6 +451,33 @@ class TestCleanupEmptyColumns:
         assert ws.max_column == 2
         assert ws.cell(row=5, column=2).value == "分管领导审核"
 
+    def test_remove_empty_columns_with_formulas(self):
+        """Columns with ONLY formulas (no plain data) → delete, formulas relocated."""
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        # Col A — real data
+        ws.cell(row=4, column=1, value="Name")
+        ws.cell(row=5, column=1, value="张三")
+        # Col B — formulas only (like D-部门's 合计 row formulas)
+        ws.cell(row=12, column=2, value="=ROUND(A5*0.07,2)")
+        ws.cell(row=13, column=2, value="=SUM(A4:A5)")
+        # Col C — real data
+        ws.cell(row=4, column=3, value="Amount")
+        ws.cell(row=5, column=3, value="5000")
+        # Col D — signature keyword (to show formulas don't interfere)
+        ws.cell(row=5, column=4, value="分管领导审核")
+
+        cfg = get_payroll_config()
+        _remove_empty_columns(ws, cfg)
+
+        # B deleted, C→B, D→C, keyword moves into C
+        assert ws.max_column == 3, f"expected 3, got {ws.max_column}"
+        # Real data column C shifted left to B
+        assert ws.cell(row=5, column=2).value == "5000"
+        # Formula from original D (col 4, keyword) should now be at col 3
+        assert ws.cell(row=5, column=3).value == "分管领导审核"
+
     def test_remove_empty_columns_no_empty_columns_noop(self):
         """Test that when all columns have real data, nothing changes."""
         wb = Workbook()
