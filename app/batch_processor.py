@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from openpyxl import load_workbook
+from openpyxl.cell.cell import MergedCell
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
@@ -314,7 +315,8 @@ def _remove_empty_columns(ws, cfg) -> None:
         non_empty = {}
         for row in range(DATA_START, ws.max_row + 1):
             v = ws.cell(row=row, column=col).value
-            if v is not None:
+            # xlsx 空单元格可能是 '' 而非 None，两者都跳过
+            if v not in (None, ''):
                 non_empty[row] = str(v)
 
         if not non_empty:
@@ -329,7 +331,7 @@ def _remove_empty_columns(ws, cfg) -> None:
         for rc in range(col + 1, ws.max_column + 1):
             for r in range(DATA_START, ws.max_row + 1):
                 v = ws.cell(row=r, column=rc).value
-                if v is not None and not _is_removable(str(v)):
+                if v not in (None, '') and not _is_removable(str(v)):
                     target = rc
                     break
             if target is not None:
@@ -339,6 +341,16 @@ def _remove_empty_columns(ws, cfg) -> None:
             target = ws.max_column + 1
 
         for row, val in non_empty.items():
+            cell = ws.cell(row=row, column=target)
+            if isinstance(cell, MergedCell):
+                for mr in list(ws.merged_cells.ranges):
+                    mc_min, mc_min_row, mc_max, mc_max_row = mr.bounds
+                    if mc_min_row <= row <= mc_max_row and mc_min <= target <= mc_max:
+                        try:
+                            ws.unmerge_cells(str(mr))
+                        except KeyError:
+                            pass
+                        break
             ws.cell(row=row, column=target).value = val
             moved.append((col, target, val))
 
