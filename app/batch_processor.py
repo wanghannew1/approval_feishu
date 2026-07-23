@@ -766,16 +766,16 @@ def is_payroll_sheet(ws, config: Optional[dict] = None) -> bool:
 def _has_unit_name_in_row2(ws) -> bool:
     """Check if row 2 contains a unit / institution name.
 
-    System-generated payroll sheets always include a unit name on row 2
-    (e.g. ``单位名称：供销粮油吉林有限公司（外包）``).  Manual sheets have
-    only column headers on rows 2-4 and no unit name, so they should skip
-    column-deletion operations.
+    System-generated payroll sheets have a ``名称：XXX`` pattern on row 2
+    (e.g. ``A2=单位  B2=名称：供销粮油吉林有限公司（外包）``).  Manual
+    sheets use row 2 directly as column headers (``序号``, ``姓名``,
+    ``基本工资``…) and should skip column‑deletion operations.
     """
     for col in range(1, (ws.max_column or 0) + 1):
         cell = ws.cell(row=2, column=col)
         if cell.value:
-            name = _strip_label_prefix(str(cell.value).strip())
-            if _is_unit_name(name):
+            text = str(cell.value).strip()
+            if "名称：" in text or text.startswith("单位名称"):
                 return True
     return False
 
