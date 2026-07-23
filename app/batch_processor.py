@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as XLImage
-from openpyxl.styles import Font
+from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 from app.feishu_api import download_file, extract_attachments, get_instance_detail, parse_form
@@ -258,6 +258,90 @@ def get_payroll_config() -> dict:
     return _PAYROLL_CONFIG
 
 
+def _get_signature_keywords(cfg: dict) -> set:
+    """Extract all signature-related keywords from config.
+
+    Collects keys from mandatory/optional signature configs and source
+    fields from text normalization rules into a deduplicated set.
+    """
+    keywords: set[str] = set()
+
+    mandatory = cfg.get("sheet_filter", {}).get("signatures", {}).get("mandatory", {})
+    keywords.update(mandatory.keys())
+
+    optional = cfg.get("sheet_filter", {}).get("signatures", {}).get("optional", {})
+    keywords.update(optional.keys())
+
+    rules = cfg.get("text_normalization", {}).get("rules", [])
+    for rule in rules:
+        source = rule.get("source")
+        if source:
+            keywords.add(source)
+
+    return keywords
+
+
+def _remove_empty_columns(ws, cfg) -> None:
+    """Delete columns with no real data, preserving signature keywords.
+
+    Scans columns right-to-left. If a column has no non-None values at all,
+    it's deleted unconditionally. If all its non-None values are signature
+    keywords (from _get_signature_keywords), the keywords are copied to the
+    nearest non-empty column on the right (or appended at the end), then
+    the source column is deleted.
+    """
+    keywords = _get_signature_keywords(cfg)
+    removed = []
+    moved = []
+
+    for col in range(ws.max_column, 0, -1):
+        non_empty = {}
+        for row in range(1, ws.max_row + 1):
+            v = ws.cell(row=row, column=col).value
+            if v is not None:
+                non_empty[row] = str(v)
+
+        if not non_empty:
+            ws.delete_cols(col, 1)
+            removed.append(col)
+            continue
+
+        all_kw = all(
+            any(kw in val for kw in keywords)
+            for val in non_empty.values()
+        )
+        if not all_kw:
+            continue  # has real data, keep
+
+        # Find nearest non-empty column to the right
+        target = None
+        for rc in range(col + 1, ws.max_column + 1):
+            has_data = any(
+                ws.cell(row=r, column=rc).value is not None
+                and not any(kw in str(ws.cell(row=r, column=rc).value) for kw in keywords)
+                for r in range(1, ws.max_row + 1)
+            )
+            if has_data:
+                target = rc
+                break
+
+        if target is None:
+            target = ws.max_column + 1
+
+        for row, val in non_empty.items():
+            ws.cell(row=row, column=target).value = val
+            moved.append((col, target, val))
+
+        ws.delete_cols(col, 1)
+        removed.append(col)
+
+    if removed:
+        logger.info(f"[CLEANUP] Removed empty columns: {removed}")
+    if moved:
+        for s, d, v in moved:
+            logger.info(f"[CLEANUP] Moved '{v}' from col {s} to col {d}")
+
+
 def _apply_normalization_rules(cell_value: str, rules: list) -> str:
     """Apply text normalization rules to a cell value."""
     for rule in rules:
@@ -487,7 +571,7 @@ def _calc_data_font_size(ws, col_widths: dict) -> float:
     return 11
 
 
-def _auto_column_width(ws, min_width: float = 6, max_width: float = 14):
+def _auto_column_width(ws, cfg=None, min_width: float = 6, max_width: float = 14):
     """
     自适应列宽 + 统一数据区字号，避免打印时 ### 溢出或列过宽导致缩放字太小。
 
@@ -496,7 +580,9 @@ def _auto_column_width(ws, min_width: float = 6, max_width: float = 14):
     2. 按各列「列宽/内容宽度」比值动态确定统一字号
     3. 覆盖全表数据行（row 4 起），统一字号
     """
-    sig_keywords = {"总经理签字", "部长签字", "财务审核", "业务审核", "部长、分管副总签字", "分管副总签字"}
+    if cfg is None:
+        cfg = get_payroll_config()
+    sig_keywords = _get_signature_keywords(cfg)
     total_row = _find_total_row(ws)
     scan_end = ws.max_row
     if total_row > 0:
@@ -574,12 +660,14 @@ def _prevent_signature_page_split(ws, positions: Dict[str, Tuple[int, int]]):
     logger.info(f"[PAGE] 签名行高度调整为45pt ({len(sig_rows)}个签名行)")
 
 
-def adjust_excel_for_print(ws) -> None:
+def adjust_excel_for_print(ws, cfg=None) -> None:
     """
     调整 Excel 打印设置：横向打印，A4 纸，左边距 2cm，其他边距 1cm，
     所有列缩放到 1 页宽，水平居中。
     在嵌入签名图片前调用。
     """
+    if cfg is None:
+        cfg = get_payroll_config()
     try:
         ws.page_setup.paperSize = 9          # A4
         ws.page_setup.orientation = "landscape"
@@ -596,7 +684,7 @@ def adjust_excel_for_print(ws) -> None:
         logger.info("[PRINT] 已调整: 横向A4, 左2cm其余1cm, 1页宽, fitToPage=True, 网格线关闭")
 
         _hide_columns(ws)
-        _auto_column_width(ws)
+        _auto_column_width(ws, cfg)
     except Exception as e:
         logger.warning(f"[PRINT] 调整打印设置时出错: {e}")
 
@@ -712,8 +800,9 @@ def _insert_signature_to_excel_openpyxl(
                     if normalized != cell.value:
                         cell.value = normalized
 
+        _remove_empty_columns(payroll_ws, cfg)
         positions = find_all_signature_positions(payroll_ws, cfg)
-        adjust_excel_for_print(payroll_ws)
+        adjust_excel_for_print(payroll_ws, cfg)
         logger.info(f"[SIGN] Found positions: {positions}")
         if not positions:
             logger.warning(f"[SIGN] No signature positions found in {excel_path.name}")
@@ -760,6 +849,7 @@ def _insert_signature_to_excel_openpyxl(
                     old_size = cell.font.size or 11
                     if old_size > 10:
                         cell.font = Font(size=10)
+                    cell.alignment = Alignment(horizontal='right', vertical='center')
 
         _prevent_signature_page_split(payroll_ws, positions)
 

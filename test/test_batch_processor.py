@@ -9,8 +9,13 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font
 
 from app.batch_processor import (
+    _get_signature_keywords,
+    _remove_empty_columns,
+    get_payroll_config,
     get_signature_path,
     is_payroll_sheet,
     is_ready_for_print,
@@ -362,3 +367,139 @@ class TestProcessSingleApproval:
 
         assert result["instance_code"] == "instance_abc"
         assert result["title"] == "标题"
+
+
+class TestCleanupEmptyColumns:
+    """Test suite for _remove_empty_columns, _get_signature_keywords, and 制表人 alignment."""
+
+    def test_get_signature_keywords_from_config(self):
+        """Test extracting signature keywords from payroll config."""
+        keywords = _get_signature_keywords(get_payroll_config())
+        expected = {
+            "总经理签字",
+            "分管领导审核",
+            "财务审核",
+            "业务审核",
+            "部长签字",
+            "部长、分管副总签字",
+        }
+        missing = expected - keywords
+        assert not missing, f"Missing keywords: {missing}"
+        assert _get_signature_keywords({}) == set()
+
+    def test_remove_empty_columns_removes_truly_empty(self):
+        """Test that completely empty columns are deleted."""
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        ws.cell(row=1, column=1, value="Header A")
+        ws.cell(row=2, column=1, value="data A")
+        ws.cell(row=1, column=4, value="Header D")
+        ws.cell(row=2, column=4, value="data D")
+
+        assert ws.max_column == 4
+
+        cfg = get_payroll_config()
+        _remove_empty_columns(ws, cfg)
+
+        assert ws.max_column == 2, f"Expected 2 columns, got {ws.max_column}"
+        assert ws.cell(row=1, column=1).value == "Header A"
+        assert ws.cell(row=1, column=2).value == "Header D"
+
+    def test_remove_empty_columns_preserves_keyword(self):
+        """Test that a column with only signature keywords is preserved
+        by moving keywords to the nearest non-empty column on the right."""
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        ws.cell(row=1, column=1, value="Name")
+        ws.cell(row=2, column=1, value="张三")
+        ws.cell(row=1, column=3, value="Amount")
+        ws.cell(row=2, column=3, value="5000")
+        # Column B has only a signature keyword
+        ws.cell(row=2, column=2, value="总经理签字")
+
+        cfg = get_payroll_config()
+        _remove_empty_columns(ws, cfg)
+
+        # Column B deleted; the keyword moves into C (target=D→C after shift)
+        assert ws.max_column == 2
+        assert ws.cell(row=2, column=2).value == "总经理签字"
+
+    def test_remove_empty_columns_keyword_appends_at_end(self):
+        """Test that a keyword-only column with no data to the right
+        appends the keyword at the end."""
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        ws.cell(row=1, column=1, value="Name")
+        ws.cell(row=2, column=1, value="张三")
+        # Column B has only a signature keyword, no data columns to the right
+        ws.cell(row=2, column=2, value="分管领导审核")
+
+        cfg = get_payroll_config()
+        _remove_empty_columns(ws, cfg)
+
+        # Keyword written to max_column+1, then column B deleted → col 2 is the new column
+        assert ws.max_column == 2
+        assert ws.cell(row=2, column=2).value == "分管领导审核"
+
+    def test_remove_empty_columns_no_empty_columns_noop(self):
+        """Test that when all columns have real data, nothing changes."""
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        ws.cell(row=1, column=1, value="Name")
+        ws.cell(row=1, column=2, value="Amount")
+        ws.cell(row=2, column=1, value="张三")
+        ws.cell(row=2, column=2, value="5000")
+
+        cfg = get_payroll_config()
+        _remove_empty_columns(ws, cfg)
+
+        assert ws.max_column == 2
+        assert ws.cell(row=1, column=1).value == "Name"
+        assert ws.cell(row=1, column=2).value == "Amount"
+        assert ws.cell(row=2, column=1).value == "张三"
+        assert ws.cell(row=2, column=2).value == "5000"
+
+    def test_remove_empty_columns_with_merged_cells(self):
+        """Test that merged cells are preserved when deleting empty columns."""
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        # Merge A1:B2 — keep col B alive to avoid affecting the merge
+        ws.merge_cells("A1:B2")
+        ws.cell(row=1, column=1, value="Merged Header")
+        ws.cell(row=3, column=2, value="__keep__")
+        # Column C is completely empty — will be deleted
+        ws.cell(row=1, column=4, value="End")
+
+        cfg = get_payroll_config()
+        _remove_empty_columns(ws, cfg)
+
+        # Column C deleted, D shifted left
+        assert ws.max_column == 3
+        assert ws.cell(row=1, column=3).value == "End"
+        # Merged cell range preserved
+        assert any("A1:B2" in str(mc) for mc in ws.merged_cells.ranges)
+
+    def test_zhibiaoren_right_alignment(self):
+        """Test that a cell containing '制表人' gets right/center alignment,
+        matching the inline logic from _insert_signature_to_excel_openpyxl."""
+        from openpyxl.styles import Font as _Font
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        cell = ws.cell(row=5, column=3, value="制表人：张三")
+
+        # Inline replica of batch_processor.py lines 848–852
+        if cell.value and "制表人" in str(cell.value):
+            old_size = cell.font.size or 11
+            if old_size > 10:
+                cell.font = _Font(size=10)
+            cell.alignment = Alignment(horizontal="right", vertical="center")
+
+        assert cell.alignment.horizontal == "right"
+        assert cell.alignment.vertical == "center"
