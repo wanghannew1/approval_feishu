@@ -573,10 +573,10 @@ class TestCleanupEmptyColumns:
         assert _is_unit_name("") is False
 
     def test_extract_unit_name_from_row2(self):
-        """Row 2 unit name is extracted when present."""
+        """Row 2 unit name is extracted when present (with 名称： prefix)."""
         ws = self._make_ws({
             (1, 1): "2026年07月工资表",
-            (2, 1): "吉林大学商学与管理学院",
+            (2, 1): "单位名称：吉林大学商学与管理学院",
         })
         assert _extract_unit_name(ws) == "吉林大学商学与管理学院"
 

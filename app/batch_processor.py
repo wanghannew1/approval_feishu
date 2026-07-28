@@ -941,18 +941,23 @@ def _extract_unit_name(ws) -> Optional[str]:
     """Try to extract the unit name from a payroll worksheet.
 
     Resolution order:
-      1. Scan row 2 – if any cell value passes :func:`_is_unit_name`, return it.
-      2. Otherwise inspect row 1.  If the title matches the pattern
-         ``XXX\\d{4}年…``, extract the leading text and check it against
-         :func:`_is_unit_name`.
+      1. If row 2 contains a unit name (detected by :func:`_has_unit_name_in_row2`
+         — ``名称：`` or ``单位名称`` pattern), scan row 2 cells and return
+         the first match.  This handles system‑generated sheets where row 2
+         stores the unit.
+      2. Otherwise (manual sheets — row 2 is column headers like 序号/姓名/
+         基本工资), skip row 2 and inspect row 1.  If the title matches the
+         pattern ``XXX\\d{4}年…``, extract the leading text and check it
+         against :func:`_is_unit_name`.
       3. Return ``None`` if no unit name is found.
     """
-    for col in range(1, (ws.max_column or 0) + 1):
-        cell = ws.cell(row=2, column=col)
-        if cell.value:
-            name = _strip_label_prefix(str(cell.value).strip())
-            if _is_unit_name(name):
-                return name
+    if _has_unit_name_in_row2(ws):
+        for col in range(1, (ws.max_column or 0) + 1):
+            cell = ws.cell(row=2, column=col)
+            if cell.value:
+                name = _strip_label_prefix(str(cell.value).strip())
+                if _is_unit_name(name):
+                    return name
 
     title = None
     for col in range(1, (ws.max_column or 0) + 1):
