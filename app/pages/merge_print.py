@@ -208,7 +208,21 @@ if merge_results:
 
                     print_progress.empty()
 
-                    if fail == 0:
+                    if success == 0 and fail == 0 and fail_list:
+                        print_status.update(
+                            label="打印失败：WPS 不可用",
+                            state="error",
+                        )
+                        st.error("❌ WPS 不可用：无法启动 WPS COM 组件")
+                        for msg in fail_list:
+                            st.markdown(f"- {msg}")
+                    elif success == 0 and fail == 0:
+                        print_status.update(
+                            label="打印完成：没有选择文件",
+                            state="error",
+                        )
+                        st.warning("没有文件被打印")
+                    elif fail == 0:
                         print_status.update(
                             label=f"打印完成：全部成功（{success} 个）",
                             state="complete",

@@ -245,6 +245,8 @@ def check_wps_available() -> bool:
     (including on non-Windows platforms).
     """
     try:
+        import pythoncom
+        pythoncom.CoInitialize()
         import win32com.client  # noqa: F811
 
         app = win32com.client.DispatchEx("KET.Application")
