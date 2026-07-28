@@ -923,11 +923,23 @@ def find_all_signature_positions(ws, config: Optional[dict] = None) -> Dict[str,
     cfg = config or get_payroll_config()
     sf = cfg["sheet_filter"]["signatures"]
 
+    # ⚠️ Only real keyword lists go into the search.  The "description"
+    # entry (a Chinese prose string, not a list) must be skipped —
+    # iterating it yields single chars that match arbitrary cells (e.g.
+    # "（" / "）" / "项" in the title row), producing a bogus position
+    # that later tricks ``_prevent_signature_page_split`` into crushing
+    # the title row down to 45pt.  Mirrors the filter in ``is_payroll_sheet``.
     keyword_groups = []
     for role, keywords in sf.get("mandatory", {}).items():
-        keyword_groups.append((keywords, role))
+        if role == "description":
+            continue
+        if isinstance(keywords, list):
+            keyword_groups.append((keywords, role))
     for role, keywords in sf.get("optional", {}).items():
-        keyword_groups.append((keywords, role))
+        if role == "description":
+            continue
+        if isinstance(keywords, list):
+            keyword_groups.append((keywords, role))
 
     for row in range(1, ws.max_row + 1):
         for col in range(1, ws.max_column + 1):
@@ -1149,6 +1161,47 @@ def _find_total_row(ws) -> int:
                     if kw in val and len(val) <= len(kw) + 4:
                         return row
     return 0
+
+
+def _restore_total_row_borders(ws) -> None:
+    """Re-apply thin borders to every cell of the 合计 (totals) row.
+
+    openpyxl's ``delete_cols`` shifts cell *values* but drops the borders
+    of empty cells, so after the empty-column cleanup the totals row
+    shows a broken outline (e.g. ``D25``'s right/top/bottom edges vanish
+    when its column is shifted left).  This restores a uniform thin box
+    across the row's actual data span so the printed totals line reads
+    as a closed row.
+    """
+    total_row = _find_total_row(ws)
+    if total_row <= 0:
+        return
+
+    leftmost = None
+    rightmost = 0
+    for col in range(1, ws.max_column + 1):
+        for probe_row in (total_row, total_row - 1):
+            if probe_row < 1:
+                continue
+            v = ws.cell(row=probe_row, column=col).value
+            if v not in (None, ''):
+                if leftmost is None or col < leftmost:
+                    leftmost = col
+                if col > rightmost:
+                    rightmost = col
+
+    if leftmost is None:
+        return
+
+    thin = Side(style="thin")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    for col in range(leftmost, rightmost + 1):
+        try:
+            ws.cell(row=total_row, column=col).border = border
+        except AttributeError:
+            pass
+    logger.info(f"[BORDER] Restored thin borders on totals row {total_row} "
+                f"(cols {leftmost}-{rightmost})")
 
 
 def _estimate_col_width(cell_value) -> float:
@@ -1696,6 +1749,7 @@ def _insert_signature_to_excel_openpyxl(
 
         if cfg.get("remove_empty_columns", {}).get("enabled", True):
             _remove_empty_columns(payroll_ws, cfg)
+        _restore_total_row_borders(payroll_ws)
         positions = find_all_signature_positions(payroll_ws, cfg)
         adjust_excel_for_print(payroll_ws, cfg)
         logger.info(f"[SIGN] Found positions: {positions}")
