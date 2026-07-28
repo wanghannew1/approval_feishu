@@ -579,12 +579,37 @@ def _delete_cols_with_merge(ws, col, amount=1, saved_all=None):
                 pass
 
 
+def _detect_data_start_row(ws) -> int:
+    """Detect the first data row by finding the "序号" column.
+
+    1. Scan all columns (up to Z) for a "序号" header cell in rows 1‑5.
+       Once found, return the row immediately below that header.
+    2. If no "序号" column is found, fall back to scanning for positive
+       integers (sequence numbers 1, 2, 3…).  Return the row of the
+       first integer found, even if only one exists (single‑employee
+       sheets).
+    3. Worst‑case fallback: row 5.
+    """
+    for hdr_row in range(1, min(ws.max_row + 1, 6)):
+        for col in range(1, min(ws.max_column + 1, 27)):
+            v = ws.cell(row=hdr_row, column=col).value
+            if v and "序号" in str(v):
+                return hdr_row + 1
+    
+    for col in range(1, min(ws.max_column + 1, 27)):
+        for row in range(1, min(ws.max_row + 1, 101)):
+            v = ws.cell(row=row, column=col).value
+            if isinstance(v, (int, float)) and v >= 1 and v == int(v):
+                return row
+    return 5
+
+
 def _remove_empty_columns(ws, cfg, formula_values: Optional[Dict] = None) -> None:
     """Delete columns with no real data, preserving signature keywords.
 
-    Scans columns right-to-left. **Header rows (1‑3) are ignored** when
-    determining whether a column is empty — only the data area (row 4+)
-    is considered.
+    Scans columns right-to-left.  The data start row is determined
+    dynamically via :func:`_detect_data_start_row` — only the data area
+    (that row and below) is considered.
 
     A column is deleted when **all** its data-area values are:
 
@@ -602,7 +627,7 @@ def _remove_empty_columns(ws, cfg, formula_values: Optional[Dict] = None) -> Non
     removed = []
     moved = []
 
-    DATA_START = 4  # skip title/unit/column-header rows
+    DATA_START = _detect_data_start_row(ws)
 
     def _is_formula(val: str) -> bool:
         return val.startswith("=")
@@ -664,12 +689,19 @@ def _remove_empty_columns(ws, cfg, formula_values: Optional[Dict] = None) -> Non
                         break
             tgt = ws.cell(row=row, column=target)
             tgt.value = val
-            # Copy formatting from the source (being deleted) to the target
+            # Copy formatting from the source (being deleted) to the target,
+            # then force wrap_text so long keywords don't overflow into the
+            # adjacent signature-image area.
             if tgt is not src_cell:
                 tgt.font = copy(src_cell.font)
                 tgt.alignment = copy(src_cell.alignment)
                 tgt.border = copy(src_cell.border)
                 tgt.number_format = copy(src_cell.number_format)
+            tgt.alignment = Alignment(
+                horizontal=tgt.alignment.horizontal if tgt.alignment else None,
+                vertical=tgt.alignment.vertical if tgt.alignment else None,
+                wrap_text=True,
+            )
             moved.append((col, target, val))
 
         _delete_cols_with_merge(ws, col, saved_all=merge_snapshot)
@@ -1657,22 +1689,13 @@ def _insert_signature_to_excel_openpyxl(
         # 打印只输出值，公式无意义；列宽按公式文本估算不准确会导致 ####。
         _resolve_formulas_via_engine(payroll_ws, excel_path)
 
-        # 展开表头合并单元格 + 列删除 + 重建合并 ——
-        # 仅对系统生成的工资表执行（行 2 有单位名称），手工表跳过列操作避免出错
         if _has_unit_name_in_row2(payroll_ws):
-
-            # 必须在列删除前执行，否则合并范围地址会失准
             _flatten_header_merges(payroll_ws)
             _remove_force_delete_columns(payroll_ws, cfg)
-            if cfg.get("remove_empty_columns", {}).get("enabled", True):
-                _remove_empty_columns(payroll_ws, cfg)
-            # 列删除后根据实际单元格值重新合并相邻相同表头
             _rebuild_header_merges(payroll_ws)
-        else:
-            logger.info(
-                f"[SIGN] Manual sheet (no unit name in row 2), "
-                f"column-deletion skipped for {excel_path.name}"
-            )
+
+        if cfg.get("remove_empty_columns", {}).get("enabled", True):
+            _remove_empty_columns(payroll_ws, cfg)
         positions = find_all_signature_positions(payroll_ws, cfg)
         adjust_excel_for_print(payroll_ws, cfg)
         logger.info(f"[SIGN] Found positions: {positions}")
@@ -1683,9 +1706,6 @@ def _insert_signature_to_excel_openpyxl(
         logger.info(f"[SIGN] Approvers: {[a['role'] for a in approvers]}")
 
         # ── Overwrite signature prompt cells with Feishu approval node names ──
-        # Instead of relying on the original Excel hint text and normalization
-        # rules, directly write the Feishu node name into each matched cell.
-        # This eliminates dependency on original prompt text variants.
         for approver in approvers:
             role = approver.get("role")
             if role and role in positions:
@@ -1694,6 +1714,15 @@ def _insert_signature_to_excel_openpyxl(
                 payroll_ws.cell(row=row, column=col).value = f"{role}："
                 logger.info(f"[SIGN] Rewrote cell ({row},{col}) "
                             f"'{old_val}' → '{role}：'")
+
+        for (row, col) in positions.values():
+            cell = payroll_ws.cell(row=row, column=col)
+            ca = cell.alignment
+            cell.alignment = Alignment(
+                horizontal=ca.horizontal if ca else None,
+                vertical=ca.vertical if ca else None,
+                wrap_text=True,
+            )
 
         for approver in approvers:
             role = approver.get("role")

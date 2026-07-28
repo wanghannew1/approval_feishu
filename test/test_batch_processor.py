@@ -502,21 +502,17 @@ class TestCleanupEmptyColumns:
         wb = Workbook()
         ws = wb.active
         ws.title = "Sheet1"
-        # Merge A4:B5 — keep col B alive to avoid affecting the merge
-        ws.merge_cells("A4:B5")
-        ws.cell(row=4, column=1, value="Merged Header")
-        ws.cell(row=6, column=2, value="__keep__")
-        # Column C is completely empty — will be deleted
-        ws.cell(row=4, column=4, value="End")
+        ws.merge_cells("A5:B6")
+        ws.cell(row=5, column=1, value="Merged Header")
+        ws.cell(row=7, column=2, value="__keep__")
+        ws.cell(row=5, column=4, value="End")
 
         cfg = get_payroll_config()
         _remove_empty_columns(ws, cfg)
 
-        # Column C deleted, D shifted left
         assert ws.max_column == 3
-        assert ws.cell(row=4, column=3).value == "End"
-        # Merged cell range preserved
-        assert any("A4:B5" in str(mc) for mc in ws.merged_cells.ranges)
+        assert ws.cell(row=5, column=3).value == "End"
+        assert any("A5:B6" in str(mc) for mc in ws.merged_cells.ranges)
 
     def test_zhibiaoren_right_alignment(self):
         """Test that a cell containing '制表人' gets right/center alignment,
