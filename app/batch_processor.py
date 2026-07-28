@@ -33,10 +33,13 @@ except ImportError:
     pass
 
 
-def _print_with_com(file_path: Path, printer_name: Optional[str] = None) -> bool:
-    """Print using WPS/Excel COM (Windows only)."""
+def _print_with_com(file_path: Path, printer_name: Optional[str] = None) -> Tuple[bool, str]:
+    """Print using WPS/Excel COM (Windows only).
+
+    Returns ``(success, error_message)``.
+    """
     if platform.system() != "Windows":
-        return False
+        return False, "非 Windows 环境"
     try:
         import pythoncom
         import win32com.client
@@ -65,10 +68,13 @@ def _print_with_com(file_path: Path, printer_name: Optional[str] = None) -> bool
                 wb.PrintOut()
             wb.Close(SaveChanges=False)
             app.Quit()
-            return True
+            return True, ""
         except Exception as e:
-            logger.warning(f"[PRINT] WPS/Excel打印失败: {e}")
-            return False
+            import traceback as _tb
+            detail = f"{type(e).__name__}: {e}"
+            logger.warning(f"[PRINT] WPS/Excel打印失败: {detail}")
+            logger.warning(f"[PRINT] traceback: {_tb.format_exc()[:500]}")
+            return False, detail
         finally:
             try:
                 if wb:
@@ -77,13 +83,19 @@ def _print_with_com(file_path: Path, printer_name: Optional[str] = None) -> bool
                     app.Quit()
             except Exception:
                 pass
-            pythoncom.CoUninitialize()
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
     except ImportError:
-        return False
+        return False, "win32com 未安装"
 
 
-def _print_with_libreoffice(file_path: Path, printer_name: Optional[str] = None) -> bool:
-    """Print using LibreOffice (cross-platform fallback)."""
+def _print_with_libreoffice(file_path: Path, printer_name: Optional[str] = None) -> Tuple[bool, str]:
+    """Print using LibreOffice (cross-platform fallback).
+
+    Returns ``(success, error_message)``.
+    """
     try:
         if file_path.suffix.lower() in (".xlsx", ".xls", ".docx", ".doc"):
             cmd = [
@@ -100,20 +112,25 @@ def _print_with_libreoffice(file_path: Path, printer_name: Optional[str] = None)
                 text=True,
                 timeout=60,
             )
-            return result.returncode == 0
-        return False
+            ok = result.returncode == 0
+            return ok, "" if ok else f"soffice exit code {result.returncode}: {result.stderr[:200]}"
+        return False, f"不支持的文件格式: {file_path.suffix}"
     except FileNotFoundError:
-        logger.warning("[PRINT] LibreOffice未安装")
-        return False
+        msg = "LibreOffice 未安装（soffice 命令未找到）"
+        logger.warning(f"[PRINT] {msg}")
+        return False, msg
 
 
-def print_file(file_path: Path, printer_name: Optional[str] = None) -> bool:
-    """Print file. Windows uses WPS/Excel COM, Linux uses LibreOffice."""
+def print_file(file_path: Path, printer_name: Optional[str] = None) -> Tuple[bool, str]:
+    """Print file. Windows uses WPS/Excel COM, Linux uses LibreOffice.
+
+    Returns ``(success, error_message)``.
+    """
     if platform.system() == "Windows":
-        success = _print_with_com(file_path, printer_name)
-        if success:
-            return True
-        logger.warning("[PRINT] COM打印失败，尝试LibreOffice...")
+        ok, err = _print_with_com(file_path, printer_name)
+        if ok:
+            return True, ""
+        logger.warning(f"[PRINT] COM打印失败 ({err})，尝试LibreOffice...")
         return _print_with_libreoffice(file_path, printer_name)
     else:
         return _print_with_libreoffice(file_path, printer_name)

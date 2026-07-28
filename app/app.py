@@ -761,13 +761,14 @@ def _handle_print():
         return
     for f in xlsx_files:
         try:
-            ok = print_file(f)
+            ok, err = print_file(f)
             if ok:
                 st.success(f"已打印: {f.name}")
                 app_logger.info(f"[PRINT] 打印成功: {f.name}")
             else:
-                st.error(f"打印失败 {f.name}: 所有打印方式均不可用（检查 Excel/WPS 或 LibreOffice 是否安装）")
-                app_logger.error(f"[PRINT] 打印失败 {f.name}: 所有打印方式均不可用")
+                msg = f"打印失败 {f.name}: {err}"
+                st.error(msg)
+                app_logger.error(f"[PRINT] 打印失败 {f.name}: {err}")
         except Exception as e:
             st.error(f"打印失败 {f.name}: {e}")
             app_logger.error(f"[PRINT] 打印失败 {f.name}: {e}")
