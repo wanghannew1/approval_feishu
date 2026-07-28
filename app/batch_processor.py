@@ -89,7 +89,7 @@ def _print_with_libreoffice(file_path: Path, printer_name: Optional[str] = None)
             cmd = [
                 "soffice",
                 "--headless",
-                "--print",
+                "-p",
                 str(file_path),
             ]
             if printer_name:
