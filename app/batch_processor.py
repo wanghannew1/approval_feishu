@@ -1491,206 +1491,110 @@ def _generate_dynamic_normalization_rules(approvers: List[Dict]) -> List[dict]:
 
 
 # ════════════════════════════════════════════════════════════════
-# 公式求值器 —— 将公式原地替换为数值
+# 公式求值 —— 用 WPS / LibreOffice 引擎计算并替换为数值
 # ════════════════════════════════════════════════════════════════
 
-def _col_letter_to_num(col: str) -> int:
-    """A→1, B→2, …, Z→26, AA→27, AB→28"""
-    n = 0
-    for ch in col:
-        n = n * 26 + (ord(ch) - ord('A') + 1)
-    return n
-
-
-def _parse_cell_ref(ref: str):
-    r"""Parse "A1" or "$A$1" into (row, col). Returns None on failure."""
-    ref = ref.replace('$', '')
-    m = re.match(r'^([A-Z]+)(\d+)$', ref)
-    if not m:
-        return None
-    return int(m.group(2)), _col_letter_to_num(m.group(1))
-
-
-def _resolve_cell_dependency(ws, row: int, col: int, visited: set):
+def _resolve_formulas_via_engine(ws, excel_path: Path) -> int:
     """
-    Recursively resolve a cell to a numeric value.
+    用外部表格引擎打开工作簿 → 自动重算全部公式 → 将计算值写回 *ws*。
 
-    - Real number → return as-is
-    - Formula → evaluate via ``_eval_simple_formula``
-    - MergedCell / None / text → return *None* (cannot participate in arithmetic)
+    优先顺序：
+    1. **WPS COM** （Windows，``win32com`` + ``KET.Application``）
+    2. **LibreOffice** （跨平台，``soffice --headless --convert-to xlsx``）
+
+    返回替换掉的公式数量，全部引擎不可用时返回 0。
     """
-    key = (row, col)
-    if key in visited:
-        return None
-    visited.add(key)
-    cell = ws.cell(row=row, column=col)
-    val = cell.value
-    if isinstance(val, (int, float)):
-        return float(val)
-    if isinstance(val, str) and val.startswith("="):
-        return _eval_simple_formula(ws, val, visited)
-    # Excel 中空单元格在算术/SUM 中等价于 0
-    if val is None:
-        return 0.0
-    return None
+    import tempfile
+    from openpyxl import load_workbook
 
+    tmpdir = Path(tempfile.mkdtemp(prefix="feishu_eval_"))
+    tmp_src = tmpdir / excel_path.name
+    tmp_dst = tmpdir / f"{excel_path.stem}_cached.xlsx"
 
-def _eval_simple_formula(ws, formula: str, visited: set):
-    """
-    Evaluate a simple spreadsheet formula and return a numeric value.
+    def _copy_cached_values(src_wb_path: Path) -> int:
+        """以 data_only=True 加载 *src_wb_path*，将缓存值拷回 *ws*。"""
+        replaced = 0
+        wb_data = load_workbook(str(src_wb_path), data_only=True)
+        ws_data = wb_data[ws.title]
+        for row in range(1, ws.max_row + 1):
+            for col in range(1, ws.max_column + 1):
+                cell = ws.cell(row=row, column=col)
+                if isinstance(cell.value, str) and cell.value.startswith("="):
+                    computed = ws_data.cell(row=row, column=col).value
+                    if computed is not None and not isinstance(computed, str):
+                        cell.value = computed
+                        replaced += 1
+        wb_data.close()
+        return replaced
 
-    Supports: ``ROUND(expr, decimals)``, ``SUM(start:end)``,
-    arithmetic (``+``, ``-``, ``*``, ``/``), parentheses, and cell references.
-
-    Returns *None* when the formula cannot be evaluated (circular reference,
-    unknown function, missing dependency, etc.).
-    """
-    text = formula.lstrip("=").strip()
-    if not text:
-        return None
-
-    # ── ROUND(expr, decimals) ──
-    m = re.match(r'^ROUND\((.+),\s*(\d+)\)$', text, re.IGNORECASE)
-    if m:
-        inner, decimals = m.groups()
-        val = _eval_arithmetic_expr(ws, inner, set(visited))
-        if val is not None:
-            return round(val, int(decimals))
-
-    # ── SUM(start:end) ──
-    m = re.match(r'^SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)$', text, re.IGNORECASE)
-    if m:
-        col1, row1_s, col2, row2_s = m.groups()
-        total = 0.0
-        for r in range(int(row1_s), int(row2_s) + 1):
-            for c in range(_col_letter_to_num(col1), _col_letter_to_num(col2) + 1):
-                v = _resolve_cell_dependency(ws, r, c, set(visited))
-                if v is None:
-                    return None
-                total += v
-        return total
-
-    # ── Plain arithmetic (e.g. J5*0.08, A5-B5-C5) ──
-    return _eval_arithmetic_expr(ws, text, set(visited))
-
-
-# ── tokenizer + recursive-descent arithmetic evaluator ──
-
-_TOKEN_RE = re.compile(r'''
-    [A-Z]+ \d+        # cell reference (A1, AB5)
-    | \d+ \. \d+      # float
-    | \d+             # integer
-    | [+\-*/(),]      # operators & punctuation
-    | \s+             # whitespace (ignored)
-''', re.VERBOSE)
-
-
-class _FormulaEvalError(Exception):
-    """Raised when a formula cannot be evaluated."""
-
-
-def _eval_arithmetic_expr(ws, expr: str, visited: set):
-    """Entry point for arithmetic expression evaluation."""
-    tokens = [t.strip() for t in _TOKEN_RE.findall(expr) if t.strip()]
-    if not tokens:
-        return None
     try:
-        result, pos = _eval_add_sub(ws, tokens, 0, visited)
-        if pos != len(tokens):
-            return None
-        return result
-    except _FormulaEvalError:
-        return None
+        # 保存当前工作簿到临时文件
+        ws.parent.save(str(tmp_src))
+        logger.info(f"[EVAL] Saved temp workbook: {tmp_src.name}")
 
+        # ── 1. WPS COM（Windows 优先）──
+        try:
+            import pythoncom
+            import win32com.client  # type: ignore
 
-def _eval_add_sub(ws, tokens, pos, visited):
-    """+ / -  (lowest precedence)."""
-    left, pos = _eval_mul_div(ws, tokens, pos, visited)
-    while pos < len(tokens) and tokens[pos] in ('+', '-'):
-        op = tokens[pos]
-        right, pos = _eval_mul_div(ws, tokens, pos + 1, visited)
-        left = left + right if op == '+' else left - right
-    return left, pos
+            pythoncom.CoInitialize()
+            app = win32com.client.DispatchEx("KET.Application")
+            app.Visible = False
+            app.DisplayAlerts = False
+            try:
+                wb = app.Workbooks.Open(str(tmp_src.resolve()))
+                wb.SaveAs(str(tmp_dst.resolve()))
+                wb.Close(SaveChanges=False)
+                app.Quit()
+                n = _copy_cached_values(tmp_dst)
+                if n:
+                    logger.info(f"[EVAL] WPS resolved {n} formulas")
+                    return n
+                logger.warning("[EVAL] WPS returned no cached values")
+            except Exception as e:
+                logger.warning(f"[EVAL] WPS COM failed: {e}")
+            finally:
+                try:
+                    app.Quit()
+                except Exception:
+                    pass
+        except ImportError:
+            logger.info("[EVAL] win32com not available, skipping WPS")
 
+        # ── 2. LibreOffice（跨平台后备）──
+        try:
+            result = subprocess.run(
+                [
+                    "soffice",
+                    "--headless",
+                    "--convert-to", "xlsx",
+                    str(tmp_src.resolve()),
+                    "--outdir", str(tmpdir.resolve()),
+                ],
+                capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode == 0:
+                converted = tmpdir / f"{tmp_src.stem}.xlsx"
+                if converted.exists():
+                    n = _copy_cached_values(converted)
+                    if n:
+                        logger.info(f"[EVAL] LibreOffice resolved {n} formulas")
+                        return n
+            else:
+                logger.warning(f"[EVAL] LibreOffice failed: {result.stderr.strip()}")
+        except FileNotFoundError:
+            logger.info("[EVAL] LibreOffice (soffice) not installed")
+        except subprocess.TimeoutExpired:
+            logger.warning("[EVAL] LibreOffice timed out after 120s")
+        except Exception as e:
+            logger.warning(f"[EVAL] LibreOffice error: {e}")
 
-def _eval_mul_div(ws, tokens, pos, visited):
-    """* /  (medium precedence)."""
-    left, pos = _eval_unary(ws, tokens, pos, visited)
-    while pos < len(tokens) and tokens[pos] in ('*', '/'):
-        op = tokens[pos]
-        right, pos = _eval_unary(ws, tokens, pos + 1, visited)
-        if op == '*':
-            left *= right
-        else:
-            if right == 0:
-                raise _FormulaEvalError("division by zero")
-            left /= right
-    return left, pos
+        logger.info("[EVAL] No engine available, formulas kept as-is")
+        return 0
 
-
-def _eval_unary(ws, tokens, pos, visited):
-    """Unary minus / plus."""
-    if pos < len(tokens) and tokens[pos] == '-':
-        val, pos = _eval_primary(ws, tokens, pos + 1, visited)
-        return -val, pos
-    if pos < len(tokens) and tokens[pos] == '+':
-        return _eval_primary(ws, tokens, pos + 1, visited)
-    return _eval_primary(ws, tokens, pos, visited)
-
-
-def _eval_primary(ws, tokens, pos, visited):
-    """Number, cell reference, or parenthesised sub-expression."""
-    if pos >= len(tokens):
-        raise _FormulaEvalError("unexpected end")
-    tok = tokens[pos]
-
-    # Number
-    if re.match(r'^\d+(\.\d+)?$', tok):
-        return float(tok), pos + 1
-
-    # Cell reference
-    ref = _parse_cell_ref(tok)
-    if ref:
-        row, col = ref
-        v = _resolve_cell_dependency(ws, row, col, set(visited))
-        if v is None:
-            raise _FormulaEvalError(f"cannot resolve {tok}")
-        return float(v), pos + 1
-
-    # Parenthesised expression
-    if tok == '(':
-        val, pos = _eval_add_sub(ws, tokens, pos + 1, visited)
-        if pos >= len(tokens) or tokens[pos] != ')':
-            raise _FormulaEvalError("missing ')'")
-        return val, pos + 1
-
-    raise _FormulaEvalError(f"unexpected token: {tok}")
-
-
-def _replace_all_formulas_with_values(ws) -> None:
-    """
-    将工作表中所有可求值的公式替换为数值。
-
-    扫描全部单元格，遇到公式就尝试求值：
-    - 成功 → 原地替换为 float
-    - 失败 → 保留原公式（记录 warn 日志）
-    """
-    replaced = 0
-    failed = 0
-    for row in range(1, ws.max_row + 1):
-        for col in range(1, ws.max_column + 1):
-            cell = ws.cell(row=row, column=col)
-            if isinstance(cell.value, str) and cell.value.startswith("="):
-                val = _eval_simple_formula(ws, cell.value, set())
-                if val is not None:
-                    cell.value = val
-                    replaced += 1
-                else:
-                    failed += 1
-    if replaced:
-        logger.info(f"[EVAL] Formula→value: {replaced} replaced, {failed} failed")
-    elif failed:
-        logger.info(f"[EVAL] All {failed} formulas have unresolved dependencies (kept as-is)")
+    finally:
+        import shutil
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def _estimate_text_render_width(text: str, font_size_pt: float) -> int:
@@ -1749,9 +1653,9 @@ def _insert_signature_to_excel_openpyxl(
                     if normalized != cell.value:
                         cell.value = normalized
 
-        # 将全部公式原地求值为数值，后续列宽计算、列删除都基于真实值
-        # 打印只输出值，公式无意义；且列宽按公式文本估算不准确会导致 ####
-        _replace_all_formulas_with_values(payroll_ws)
+        # 用 WPS/LibreOffice 引擎将公式计算为数值。
+        # 打印只输出值，公式无意义；列宽按公式文本估算不准确会导致 ####。
+        _resolve_formulas_via_engine(payroll_ws, excel_path)
 
         # 展开表头合并单元格 + 列删除 + 重建合并 ——
         # 仅对系统生成的工资表执行（行 2 有单位名称），手工表跳过列操作避免出错
