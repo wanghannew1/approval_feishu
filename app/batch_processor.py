@@ -1471,6 +1471,20 @@ def _insert_signature_to_excel_openpyxl(
             return False, [], output_path
 
         logger.info(f"[SIGN] Approvers: {[a['role'] for a in approvers]}")
+
+        # ── Overwrite signature prompt cells with Feishu approval node names ──
+        # Instead of relying on the original Excel hint text and normalization
+        # rules, directly write the Feishu node name into each matched cell.
+        # This eliminates dependency on original prompt text variants.
+        for approver in approvers:
+            role = approver.get("role")
+            if role and role in positions:
+                row, col = positions[role]
+                old_val = payroll_ws.cell(row=row, column=col).value
+                payroll_ws.cell(row=row, column=col).value = role
+                logger.info(f"[SIGN] Rewrote cell ({row},{col}) "
+                            f"'{old_val}' → '{role}'")
+
         for approver in approvers:
             role = approver.get("role")
             approver_name = approver.get("approver_name")
