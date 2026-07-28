@@ -1347,6 +1347,10 @@ def _insert_signature_to_excel_openpyxl(
         # 展开表头合并单元格 + 列删除 + 重建合并 ——
         # 仅对系统生成的工资表执行（行 2 有单位名称），手工表跳过列操作避免出错
         if _has_unit_name_in_row2(payroll_ws):
+            # 将所有公式替换为预计算值，避免列删除后公式引用地址偏移
+            for (r, c), computed in formula_values.items():
+                payroll_ws.cell(row=r, column=c).value = computed
+
             # 必须在列删除前执行，否则合并范围地址会失准
             _flatten_header_merges(payroll_ws)
             # 删除用户配置的强制删除列（如"岗位"有数据，但财务打印不需要）
