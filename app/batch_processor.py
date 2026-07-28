@@ -917,7 +917,16 @@ _UNIT_KEYWORDS = frozenset({
 def _is_unit_name(text: str) -> bool:
     if len(text) < 3:
         return False
-    return any(kw in text for kw in _UNIT_KEYWORDS)
+    for kw in _UNIT_KEYWORDS:
+        if len(kw) >= 2:
+            if kw in text:
+                return True
+        else:
+            # 单字关键词（局、处、厂、社、所）仅在字符串末尾匹配，
+            # 避免"应纳税所得额"（含"所"）等非单位词误判。
+            if text.endswith(kw):
+                return True
+    return False
 
 
 def _strip_label_prefix(text: str) -> str:
@@ -1020,6 +1029,12 @@ def _is_standard_filename(name: str) -> bool:
 
     # 2) YYYYMM 连写格式
     m = re.search(r'(\d{6})', stem)
+    if m:
+        unit_candidate = stem[: m.start()]
+        return bool(unit_candidate and _is_unit_name(unit_candidate))
+
+    # 3) YYYY.MM 或 YYYY-MM 格式（2026.07 或 2026-07）
+    m = re.search(r'(\d{4})[.\-](\d{2})', stem)
     if m:
         unit_candidate = stem[: m.start()]
         return bool(unit_candidate and _is_unit_name(unit_candidate))
