@@ -20,6 +20,7 @@ from openpyxl.drawing.image import Image as XLImage
 from openpyxl.drawing.spreadsheet_drawing import (
     AnchorMarker,
     OneCellAnchor,
+    XDRPositiveSize2D,
     pixels_to_EMU,
 )
 from openpyxl.styles import Alignment, Border, Font, Side
@@ -1621,7 +1622,10 @@ def _insert_signature_to_excel_openpyxl(
                     col=col - 1, row=row - 1,
                     colOff=off_emu, rowOff=0,
                 ),
-                ext=img.ext,
+                ext=XDRPositiveSize2D(
+                    pixels_to_EMU(img.width),
+                    pixels_to_EMU(img.height),
+                ),
             )
             payroll_ws.add_image(img, anchor)
             inserted_roles.append(role)
