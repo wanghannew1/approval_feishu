@@ -246,8 +246,6 @@ def check_wps_available() -> bool:
     """
     try:
         import win32com.client  # noqa: F811
-        import pythoncom
-        pythoncom.CoInitialize()
 
         app = win32com.client.DispatchEx("KET.Application")
         app.Quit()
@@ -995,6 +993,10 @@ def merge_payrolls_simple(
                 app.Quit()
             except Exception:
                 pass
+        try:
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
 
     return output_files, warnings_list, {"total_groups": len(groups)}
 

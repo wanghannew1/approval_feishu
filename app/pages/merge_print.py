@@ -145,9 +145,13 @@ if merge_clicked:
                             st.warning(w)
 
             except Exception as e:
+                import traceback
+                tb = traceback.format_exc()
                 status_text.update(label="合并失败", state="error")
                 progress_bar.empty()
                 st.error(f"合并失败: {e}")
+                with st.expander("错误详情"):
+                    st.code(tb)
 
 st.divider()
 
