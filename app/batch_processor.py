@@ -51,6 +51,12 @@ def _print_with_com(file_path: Path, printer_name: Optional[str] = None) -> bool
             app.DisplayAlerts = False
 
             wb = app.Workbooks.Open(str(file_path.resolve()))
+            ws = wb.ActiveSheet
+            ws.PageSetup.Orientation = 2          # xlLandscape
+            ws.PageSetup.PaperSize = 9            # xlPaperA4
+            ws.PageSetup.FitToPagesWide = 1       # all columns fit to 1 page wide
+            ws.PageSetup.FitToPagesTall = 0       # 0=unlimited rows
+            ws.PageSetup.PrintTitleRows = "$1:$5" # repeat header rows
             if printer_name:
                 wb.PrintOut(ActivePrinter=printer_name)
             else:
