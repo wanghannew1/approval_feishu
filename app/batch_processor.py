@@ -1490,6 +1490,209 @@ def _generate_dynamic_normalization_rules(approvers: List[Dict]) -> List[dict]:
     return rules
 
 
+# ════════════════════════════════════════════════════════════════
+# 公式求值器 —— 将公式原地替换为数值
+# ════════════════════════════════════════════════════════════════
+
+def _col_letter_to_num(col: str) -> int:
+    """A→1, B→2, …, Z→26, AA→27, AB→28"""
+    n = 0
+    for ch in col:
+        n = n * 26 + (ord(ch) - ord('A') + 1)
+    return n
+
+
+def _parse_cell_ref(ref: str):
+    r"""Parse "A1" or "$A$1" into (row, col). Returns None on failure."""
+    ref = ref.replace('$', '')
+    m = re.match(r'^([A-Z]+)(\d+)$', ref)
+    if not m:
+        return None
+    return int(m.group(2)), _col_letter_to_num(m.group(1))
+
+
+def _resolve_cell_dependency(ws, row: int, col: int, visited: set):
+    """
+    Recursively resolve a cell to a numeric value.
+
+    - Real number → return as-is
+    - Formula → evaluate via ``_eval_simple_formula``
+    - MergedCell / None / text → return *None* (cannot participate in arithmetic)
+    """
+    key = (row, col)
+    if key in visited:
+        return None
+    visited.add(key)
+    cell = ws.cell(row=row, column=col)
+    val = cell.value
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str) and val.startswith("="):
+        return _eval_simple_formula(ws, val, visited)
+    # Excel 中空单元格在算术/SUM 中等价于 0
+    if val is None:
+        return 0.0
+    return None
+
+
+def _eval_simple_formula(ws, formula: str, visited: set):
+    """
+    Evaluate a simple spreadsheet formula and return a numeric value.
+
+    Supports: ``ROUND(expr, decimals)``, ``SUM(start:end)``,
+    arithmetic (``+``, ``-``, ``*``, ``/``), parentheses, and cell references.
+
+    Returns *None* when the formula cannot be evaluated (circular reference,
+    unknown function, missing dependency, etc.).
+    """
+    text = formula.lstrip("=").strip()
+    if not text:
+        return None
+
+    # ── ROUND(expr, decimals) ──
+    m = re.match(r'^ROUND\((.+),\s*(\d+)\)$', text, re.IGNORECASE)
+    if m:
+        inner, decimals = m.groups()
+        val = _eval_arithmetic_expr(ws, inner, set(visited))
+        if val is not None:
+            return round(val, int(decimals))
+
+    # ── SUM(start:end) ──
+    m = re.match(r'^SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)$', text, re.IGNORECASE)
+    if m:
+        col1, row1_s, col2, row2_s = m.groups()
+        total = 0.0
+        for r in range(int(row1_s), int(row2_s) + 1):
+            for c in range(_col_letter_to_num(col1), _col_letter_to_num(col2) + 1):
+                v = _resolve_cell_dependency(ws, r, c, set(visited))
+                if v is None:
+                    return None
+                total += v
+        return total
+
+    # ── Plain arithmetic (e.g. J5*0.08, A5-B5-C5) ──
+    return _eval_arithmetic_expr(ws, text, set(visited))
+
+
+# ── tokenizer + recursive-descent arithmetic evaluator ──
+
+_TOKEN_RE = re.compile(r'''
+    [A-Z]+ \d+        # cell reference (A1, AB5)
+    | \d+ \. \d+      # float
+    | \d+             # integer
+    | [+\-*/(),]      # operators & punctuation
+    | \s+             # whitespace (ignored)
+''', re.VERBOSE)
+
+
+class _FormulaEvalError(Exception):
+    """Raised when a formula cannot be evaluated."""
+
+
+def _eval_arithmetic_expr(ws, expr: str, visited: set):
+    """Entry point for arithmetic expression evaluation."""
+    tokens = [t.strip() for t in _TOKEN_RE.findall(expr) if t.strip()]
+    if not tokens:
+        return None
+    try:
+        result, pos = _eval_add_sub(ws, tokens, 0, visited)
+        if pos != len(tokens):
+            return None
+        return result
+    except _FormulaEvalError:
+        return None
+
+
+def _eval_add_sub(ws, tokens, pos, visited):
+    """+ / -  (lowest precedence)."""
+    left, pos = _eval_mul_div(ws, tokens, pos, visited)
+    while pos < len(tokens) and tokens[pos] in ('+', '-'):
+        op = tokens[pos]
+        right, pos = _eval_mul_div(ws, tokens, pos + 1, visited)
+        left = left + right if op == '+' else left - right
+    return left, pos
+
+
+def _eval_mul_div(ws, tokens, pos, visited):
+    """* /  (medium precedence)."""
+    left, pos = _eval_unary(ws, tokens, pos, visited)
+    while pos < len(tokens) and tokens[pos] in ('*', '/'):
+        op = tokens[pos]
+        right, pos = _eval_unary(ws, tokens, pos + 1, visited)
+        if op == '*':
+            left *= right
+        else:
+            if right == 0:
+                raise _FormulaEvalError("division by zero")
+            left /= right
+    return left, pos
+
+
+def _eval_unary(ws, tokens, pos, visited):
+    """Unary minus / plus."""
+    if pos < len(tokens) and tokens[pos] == '-':
+        val, pos = _eval_primary(ws, tokens, pos + 1, visited)
+        return -val, pos
+    if pos < len(tokens) and tokens[pos] == '+':
+        return _eval_primary(ws, tokens, pos + 1, visited)
+    return _eval_primary(ws, tokens, pos, visited)
+
+
+def _eval_primary(ws, tokens, pos, visited):
+    """Number, cell reference, or parenthesised sub-expression."""
+    if pos >= len(tokens):
+        raise _FormulaEvalError("unexpected end")
+    tok = tokens[pos]
+
+    # Number
+    if re.match(r'^\d+(\.\d+)?$', tok):
+        return float(tok), pos + 1
+
+    # Cell reference
+    ref = _parse_cell_ref(tok)
+    if ref:
+        row, col = ref
+        v = _resolve_cell_dependency(ws, row, col, set(visited))
+        if v is None:
+            raise _FormulaEvalError(f"cannot resolve {tok}")
+        return float(v), pos + 1
+
+    # Parenthesised expression
+    if tok == '(':
+        val, pos = _eval_add_sub(ws, tokens, pos + 1, visited)
+        if pos >= len(tokens) or tokens[pos] != ')':
+            raise _FormulaEvalError("missing ')'")
+        return val, pos + 1
+
+    raise _FormulaEvalError(f"unexpected token: {tok}")
+
+
+def _replace_all_formulas_with_values(ws) -> None:
+    """
+    将工作表中所有可求值的公式替换为数值。
+
+    扫描全部单元格，遇到公式就尝试求值：
+    - 成功 → 原地替换为 float
+    - 失败 → 保留原公式（记录 warn 日志）
+    """
+    replaced = 0
+    failed = 0
+    for row in range(1, ws.max_row + 1):
+        for col in range(1, ws.max_column + 1):
+            cell = ws.cell(row=row, column=col)
+            if isinstance(cell.value, str) and cell.value.startswith("="):
+                val = _eval_simple_formula(ws, cell.value, set())
+                if val is not None:
+                    cell.value = val
+                    replaced += 1
+                else:
+                    failed += 1
+    if replaced:
+        logger.info(f"[EVAL] Formula→value: {replaced} replaced, {failed} failed")
+    elif failed:
+        logger.info(f"[EVAL] All {failed} formulas have unresolved dependencies (kept as-is)")
+
+
 def _estimate_text_render_width(text: str, font_size_pt: float) -> int:
     """Estimate the rendered pixel width of a piece of text in a given font size.
 
@@ -1546,30 +1749,19 @@ def _insert_signature_to_excel_openpyxl(
                     if normalized != cell.value:
                         cell.value = normalized
 
-        # 加载 data_only 版本获取公式计算值
-        wb_data = load_workbook(str(excel_path), data_only=True)
-        payroll_ws_data = wb_data[payroll_ws.title]
-        formula_values = {}
-        for r in range(1, payroll_ws.max_row + 1):
-            for c in range(1, payroll_ws.max_column + 1):
-                v = payroll_ws.cell(row=r, column=c).value
-                if isinstance(v, str) and v.startswith("="):
-                    computed = payroll_ws_data.cell(row=r, column=c).value
-                    if computed is not None and not (isinstance(computed, str) and computed.startswith("=")):
-                        formula_values[(r, c)] = computed
+        # 将全部公式原地求值为数值，后续列宽计算、列删除都基于真实值
+        # 打印只输出值，公式无意义；且列宽按公式文本估算不准确会导致 ####
+        _replace_all_formulas_with_values(payroll_ws)
 
         # 展开表头合并单元格 + 列删除 + 重建合并 ——
         # 仅对系统生成的工资表执行（行 2 有单位名称），手工表跳过列操作避免出错
         if _has_unit_name_in_row2(payroll_ws):
-            # 将所有公式替换为预计算值，避免列删除后公式引用地址偏移
-            for (r, c), computed in formula_values.items():
-                payroll_ws.cell(row=r, column=c).value = computed
 
             # 必须在列删除前执行，否则合并范围地址会失准
             _flatten_header_merges(payroll_ws)
-            _remove_force_delete_columns(payroll_ws, cfg, formula_values)
+            _remove_force_delete_columns(payroll_ws, cfg)
             if cfg.get("remove_empty_columns", {}).get("enabled", True):
-                _remove_empty_columns(payroll_ws, cfg, formula_values)
+                _remove_empty_columns(payroll_ws, cfg)
             # 列删除后根据实际单元格值重新合并相邻相同表头
             _rebuild_header_merges(payroll_ws)
         else:
@@ -1578,7 +1770,7 @@ def _insert_signature_to_excel_openpyxl(
                 f"column-deletion skipped for {excel_path.name}"
             )
         positions = find_all_signature_positions(payroll_ws, cfg)
-        adjust_excel_for_print(payroll_ws, cfg, formula_values)
+        adjust_excel_for_print(payroll_ws, cfg)
         logger.info(f"[SIGN] Found positions: {positions}")
         if not positions:
             logger.warning(f"[SIGN] No signature positions found in {excel_path.name}")
