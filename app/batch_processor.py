@@ -1352,6 +1352,47 @@ def _convert_xls_to_xlsx(xls_path: Path) -> Optional[Path]:
     return _convert_xls_to_xlsx_libreoffice(xls_path)
 
 
+def _generate_dynamic_normalization_rules(approvers: List[Dict]) -> List[dict]:
+    """Auto-generate normalization rules from approval role names.
+
+    For each role like ``分管领导审核``, generate rules that swap the
+    action suffix so that common variants (e.g. ``分管领导签字``) are
+    normalised to the standard name.
+
+    Manually configured rules (from ``payroll_sheet_config.json``) take
+    precedence over these dynamic ones.
+    """
+    # Chinese approval action suffixes and their common synonyms
+    _SUFFIX_SYNONYMS = {
+        "审核": ["签字", "签章", "审批", "确认"],
+        "签字": ["审核", "签章", "审批"],
+        "审批": ["审核", "签字", "签章"],
+        "签章": ["审核", "签字", "审批"],
+    }
+    _SUFFIX_LEN = 2  # all suffixes above are 2 characters
+
+    rules: List[dict] = []
+    seen: set = set()
+    for approver in approvers:
+        role = approver.get("role", "")
+        if not role or len(role) < _SUFFIX_LEN or role in seen:
+            continue
+        seen.add(role)
+
+        suffix = role[-_SUFFIX_LEN:]
+        synonyms = _SUFFIX_SYNONYMS.get(suffix)
+        if not synonyms:
+            continue
+
+        core = role[:-_SUFFIX_LEN]
+        for variant_suffix in synonyms:
+            variant = f"{core}{variant_suffix}"
+            if variant != role:
+                rules.append({"source": variant, "target": role})
+
+    return rules
+
+
 def _insert_signature_to_excel_openpyxl(
     excel_path: Path,
     approvers: List[Dict],
@@ -1376,9 +1417,13 @@ def _insert_signature_to_excel_openpyxl(
             logger.warning(f"[SIGN] No payroll sheet found in {excel_path.name}")
             return False, [], output_path
 
-        # 归一化文本单元格（如"部长签字"→"分管领导审核"），
-        # 仅操作字符串类型，不碰数字/公式/日期，避免破坏数值格式
-        normalization_rules = cfg.get("text_normalization", {}).get("rules", [])
+        # 归一化文本单元格 —— 先应用动态规则（从审批角色自动派生），
+        # 再叠加手动配置规则（后者优先级高）。
+        dynamic_rules = _generate_dynamic_normalization_rules(approvers)
+        config_rules = cfg.get("text_normalization", {}).get("rules", [])
+        normalization_rules = dynamic_rules + config_rules
+        if dynamic_rules:
+            logger.info(f"[SIGN] Dynamic normalization rules: {dynamic_rules}")
         for row in range(1, payroll_ws.max_row + 1):
             for col in range(1, payroll_ws.max_column + 1):
                 cell = payroll_ws.cell(row=row, column=col)
