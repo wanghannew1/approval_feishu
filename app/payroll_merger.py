@@ -968,13 +968,22 @@ def merge_payrolls_simple(
 
             # ── Save ──
             ym_part = f"_{ym_display}" if ym_display else ""
-            safe_key = group_key.replace("/", "／").replace("\\", "／").replace(":", "：")
+            safe_key = re.sub(r'[\\/:*?"<>|]', '_', group_key)
             output_name = f"{safe_key}_工资表合集{ym_part}.xlsx"
-            output_path = str(Path(output_dir, output_name))
-            Path(output_dir).mkdir(parents=True, exist_ok=True)
+            output_dir_abs = str(Path(output_dir).resolve())
+            Path(output_dir_abs).mkdir(parents=True, exist_ok=True)
+            output_path = str(Path(output_dir_abs, output_name))
             if Path(output_path).exists():
                 Path(output_path).unlink()  # WPS prompts on overwrite
-            tgt_wb.SaveAs(output_path)
+            try:
+                tgt_wb.SaveAs(output_path)
+            except Exception as save_err:
+                fallback_path = str(Path(output_dir_abs, f"合并工资表合集_{group_idx}.xlsx"))
+                if Path(fallback_path).exists():
+                    Path(fallback_path).unlink()
+                tgt_wb.SaveAs(fallback_path)
+                output_path = fallback_path
+                warnings_list.append(f"文件名包含特殊字符，已保存为: {Path(fallback_path).name}")
             tgt_wb.Close(SaveChanges=True)
             output_files.append(output_path)
 
