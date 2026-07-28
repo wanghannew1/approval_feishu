@@ -1131,7 +1131,7 @@ def _estimate_col_width(cell_value) -> float:
     return width
 
 
-def _calc_data_font_size(ws, col_widths: dict) -> float:
+def _calc_data_font_size(ws, col_widths: dict, formula_values: Optional[dict] = None) -> float:
     """
     根据列宽与内容宽度的比值，动态选择一个统一的数据区字号。
 
@@ -1165,9 +1165,12 @@ def _calc_data_font_size(ws, col_widths: dict) -> float:
                         break
                 if is_sig:
                     continue
-                # 跳过公式（文本是公式原文，显示值才是实际宽度）
                 if isinstance(val, str) and val.startswith("="):
-                    continue
+                    # 优先用 data_only 缓存值估算，无缓存则跳过
+                    if formula_values and (row, col) in formula_values:
+                        val = formula_values[(row, col)]
+                    else:
+                        continue
                 w = _estimate_col_width(val)
                 if w > max_cw:
                     max_cw = w
@@ -1183,7 +1186,16 @@ def _calc_data_font_size(ws, col_widths: dict) -> float:
     return 11
 
 
-def _auto_column_width(ws, cfg=None, min_width: float = 6, max_width: float = 20):
+def _is_sig_keyword_row(ws, row: int, sig_keywords: list) -> bool:
+    for c in range(1, ws.max_column + 1):
+        v = ws.cell(row=row, column=c).value
+        if v and any(kw in str(v) for kw in sig_keywords):
+            return True
+    return False
+
+
+def _auto_column_width(ws, cfg=None, formula_values: Optional[dict] = None,
+                       min_width: float = 6, max_width: float = 20):
     """
     自适应列宽 + 统一数据区字号，避免打印时 ### 溢出或列过宽导致缩放字太小。
 
@@ -1196,29 +1208,36 @@ def _auto_column_width(ws, cfg=None, min_width: float = 6, max_width: float = 20
         cfg = get_payroll_config()
     sig_keywords = _get_signature_keywords(cfg)
     total_row = _find_total_row(ws)
-    scan_end = ws.max_row
-    if total_row > 0:
-        scan_end = total_row
-    else:
-        for r in range(1, ws.max_row + 1):
-            for c in range(1, ws.max_column + 1):
-                v = ws.cell(row=r, column=c).value
-                if v and any(kw in str(v) for kw in sig_keywords):
-                    scan_end = r - 1
-                    break
-            if scan_end < ws.max_row:
-                break
 
-    # --- 1. 自适应列宽（只扩不缩）---
+    # --- 1. 自适应列宽（取合计行最宽值 + 表头）---
     col_widths = {}
     for col in range(1, ws.max_column + 1):
         col_letter = get_column_letter(col)
         max_content = 0
-        for row in range(1, scan_end + 1):
+
+        # 表头宽度（row 1-3 最宽单元格）
+        for row in range(1, min(4, ws.max_row + 1)):
             cell = ws.cell(row=row, column=col)
             val = cell.value
             if val is not None and not (isinstance(val, str) and val.startswith("=")):
                 w = _estimate_col_width(val)
+                if w > max_content:
+                    max_content = w
+
+        # 合计行宽度（通常该行数字最大）
+        if total_row > 0:
+            cell = ws.cell(row=total_row, column=col)
+            val = cell.value
+            if val is not None:
+                if isinstance(val, str) and val.startswith("="):
+                    # 优先用 data_only 计算值；无缓存时回退到公式文本
+                    # （公式文本一定比结果长，安全略宽）
+                    if formula_values and (total_row, col) in formula_values:
+                        w = _estimate_col_width(formula_values[(total_row, col)])
+                    else:
+                        w = _estimate_col_width(val)
+                else:
+                    w = _estimate_col_width(val)
                 if w > max_content:
                     max_content = w
 
@@ -1229,7 +1248,7 @@ def _auto_column_width(ws, cfg=None, min_width: float = 6, max_width: float = 20
             col_widths[col] = desired
 
     # --- 2. 动态计算统一字号 ---
-    data_font_size = _calc_data_font_size(ws, col_widths)
+    data_font_size = _calc_data_font_size(ws, col_widths, formula_values)
 
     # --- 3. 统一数据区字号（row 4 起全表覆盖，跳过签名行）---
     for row in range(4, ws.max_row + 1):
@@ -1247,10 +1266,6 @@ def _auto_column_width(ws, cfg=None, min_width: float = 6, max_width: float = 20
                 cell.font = Font(size=data_font_size, name=cell.font.name)
 
     # --- 4. 字号调整后复查列宽，避免数字 #### 溢出 + 文本换行 ---
-    # 列宽在步骤 1 中按默认 11pt 基准计算，若步骤 2 确定的字号较大，
-    # 数值型内容的实际渲染宽度可能超过列宽，导致 Excel 显示 ####。
-    # 数值列：按实际字号比例放大列宽。
-    # 文本列：开启自动换行，不无限加宽。
     if data_font_size > 11:
         _SCALE = data_font_size / 11.0
         for col in range(1, ws.max_column + 1):
@@ -1262,27 +1277,26 @@ def _auto_column_width(ws, cfg=None, min_width: float = 6, max_width: float = 20
             has_numeric = False
             has_text_overflow = False
             for row in range(4, ws.max_row + 1):
-                for c in range(1, ws.max_column + 1):
-                    v = ws.cell(row=row, column=c).value
-                    if v and any(kw in str(v) for kw in sig_keywords):
-                        break
-                else:
-                    cell = ws.cell(row=row, column=col)
-                    val = cell.value
-                    if val is not None and not (
-                        isinstance(val, str) and val.startswith("=")
-                    ):
-                        sw = _estimate_col_width(val) * _SCALE
-                        if sw > needed:
-                            needed = sw
-                        # 区分数值和文本
-                        if isinstance(val, (int, float)) or (
-                            isinstance(val, str) and re.match(r'^[\d\-,.]', val)
-                        ):
-                            has_numeric = True
-                        else:
-                            if sw > cur_w:
-                                has_text_overflow = True
+                if _is_sig_keyword_row(ws, row, sig_keywords):
+                    continue
+                cell = ws.cell(row=row, column=col)
+                val = cell.value
+                if val is None:
+                    continue
+                if isinstance(val, str) and val.startswith("="):
+                    if formula_values and (row, col) in formula_values:
+                        val = formula_values[(row, col)]
+                    else:
+                        continue
+                sw = _estimate_col_width(val) * _SCALE
+                if sw > needed:
+                    needed = sw
+                if isinstance(val, (int, float)) or (
+                    isinstance(val, str) and re.match(r'^[\d\-,.]', val)
+                ):
+                    has_numeric = True
+                elif sw > cur_w:
+                    has_text_overflow = True
             if has_numeric and needed > cur_w:
                 ws.column_dimensions[col_letter].width = round(needed + 0.5)
                 logger.info(
@@ -1291,17 +1305,16 @@ def _auto_column_width(ws, cfg=None, min_width: float = 6, max_width: float = 20
                     f"(字号 {data_font_size}pt)"
                 )
             if has_text_overflow:
-                # 文本超长：整列开启自动换行，避免 #### 且不撑爆列宽
                 for row in range(4, ws.max_row + 1):
+                    if _is_sig_keyword_row(ws, row, sig_keywords):
+                        continue
                     cell = ws.cell(row=row, column=col)
-                    if cell.value is not None and cell.alignment:
+                    if cell.value is not None:
                         cell.alignment = Alignment(
-                            horizontal=cell.alignment.horizontal,
-                            vertical=cell.alignment.vertical,
+                            horizontal=cell.alignment.horizontal if cell.alignment else None,
+                            vertical=cell.alignment.vertical if cell.alignment else None,
                             wrap_text=True,
                         )
-                    elif cell.value is not None:
-                        cell.alignment = Alignment(wrap_text=True)
                 logger.info(f"[COL] 文本列 {col_letter} 开启自动换行")
 
 
@@ -1331,7 +1344,7 @@ def _prevent_signature_page_split(ws, positions: Dict[str, Tuple[int, int]]):
     logger.info(f"[PAGE] 签名行高度调整为45pt ({len(sig_rows)}个签名行)")
 
 
-def adjust_excel_for_print(ws, cfg=None) -> None:
+def adjust_excel_for_print(ws, cfg=None, formula_values: Optional[dict] = None) -> None:
     """
     调整 Excel 打印设置：横向打印，A4 纸，左边距 2cm，其他边距 1cm，
     所有列缩放到 1 页宽，水平居中。
@@ -1355,7 +1368,7 @@ def adjust_excel_for_print(ws, cfg=None) -> None:
         logger.info("[PRINT] 已调整: 横向A4, 左2cm其余1cm, 1页宽, fitToPage=True, 网格线关闭")
 
         _hide_columns(ws)
-        _auto_column_width(ws, cfg)
+        _auto_column_width(ws, cfg, formula_values)
     except Exception as e:
         logger.warning(f"[PRINT] 调整打印设置时出错: {e}")
 
@@ -1565,7 +1578,7 @@ def _insert_signature_to_excel_openpyxl(
                 f"column-deletion skipped for {excel_path.name}"
             )
         positions = find_all_signature_positions(payroll_ws, cfg)
-        adjust_excel_for_print(payroll_ws, cfg)
+        adjust_excel_for_print(payroll_ws, cfg, formula_values)
         logger.info(f"[SIGN] Found positions: {positions}")
         if not positions:
             logger.warning(f"[SIGN] No signature positions found in {excel_path.name}")
