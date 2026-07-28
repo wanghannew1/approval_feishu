@@ -102,7 +102,7 @@ if merge_clicked:
             if not output_dir:
                 from datetime import datetime
                 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                output_dir = f"./merged_payrolls_{ts}"
+                output_dir = str(payroll_path.parent / f"merged_payrolls_{ts}")
             output_path = Path(output_dir)
             output_path.mkdir(parents=True, exist_ok=True)
 
