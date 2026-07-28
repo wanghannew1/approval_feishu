@@ -247,7 +247,7 @@ def check_wps_available() -> bool:
     try:
         import win32com.client  # noqa: F811
 
-        app = win32com.client.Dispatch("KET.Application")
+        app = win32com.client.DispatchEx("KET.Application")
         app.Quit()
         return True
     except (ImportError, Exception):

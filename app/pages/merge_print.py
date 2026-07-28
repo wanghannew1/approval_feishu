@@ -110,9 +110,9 @@ if merge_clicked:
             progress_bar = st.progress(0, text="准备合并...")
             status_text = st.status("正在合并工资表...", expanded=True)
 
-            def _progress_callback(msg, pct=None):
-                if pct is not None:
-                    progress_bar.progress(min(pct, 1.0), text=msg)
+            def _progress_callback(current, total, msg):
+                pct = current / total if total > 0 else 0
+                progress_bar.progress(min(pct, 1.0), text=msg)
                 status_text.write(msg)
 
             try:
@@ -191,9 +191,9 @@ if merge_results:
                 print_status = st.status("正在打印...", expanded=True)
                 print_progress = st.progress(0, text="准备打印...")
 
-                def _print_callback(msg, pct=None):
-                    if pct is not None:
-                        print_progress.progress(min(pct, 1.0), text=msg)
+                def _print_callback(current, total, msg):
+                    pct = current / total if total > 0 else 0
+                    print_progress.progress(min(pct, 1.0), text=msg)
                     print_status.write(msg)
 
                 try:
