@@ -336,6 +336,10 @@ def render_sidebar():
                 except Exception as e:
                     st.error(f"导入失败: {e}")
 
+        st.divider()
+        if st.button("🗂️ 工资表合并", use_container_width=True):
+            st.switch_page("pages/merge_print.py")
+
     if st.session_state.selected_definition not in definitions and definitions:
         st.session_state.selected_definition = next(iter(definitions))
 
