@@ -246,6 +246,8 @@ def check_wps_available() -> bool:
     """
     try:
         import win32com.client  # noqa: F811
+        import pythoncom
+        pythoncom.CoInitialize()
 
         app = win32com.client.DispatchEx("KET.Application")
         app.Quit()
@@ -279,6 +281,8 @@ def print_file(
 
     try:
         import win32com.client  # noqa: F811
+        import pythoncom
+        pythoncom.CoInitialize()
     except ImportError:
         if progress_callback:
             progress_callback(0, 1, "win32com 不可用（非 Windows 环境）")
@@ -451,6 +455,8 @@ def merge_payrolls_simple(
         - *stats* — dict with key ``"total_groups"``.
     """
     import win32com.client  # noqa: F811
+    import pythoncom
+    pythoncom.CoInitialize()
 
     warnings_list: List[str] = []
 
