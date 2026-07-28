@@ -56,7 +56,9 @@ def _print_with_com(file_path: Path, printer_name: Optional[str] = None) -> bool
             ws.PageSetup.PaperSize = 9            # xlPaperA4
             ws.PageSetup.FitToPagesWide = 1       # all columns fit to 1 page wide
             ws.PageSetup.FitToPagesTall = 0       # 0=unlimited rows
-            ws.PageSetup.PrintTitleRows = "$1:$5" # repeat header rows
+            # PrintTitleRows intentionally NOT set here — it is managed by
+            # payroll_merger.print_file() which knows whether the workbook
+            # is a merged "合集" (embedded headers) or a raw signed file.
             if printer_name:
                 wb.PrintOut(ActivePrinter=printer_name)
             else:
