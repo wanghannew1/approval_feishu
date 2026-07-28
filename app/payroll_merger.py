@@ -533,6 +533,7 @@ def merge_payrolls_simple(
         )
 
     output_files: List[str] = []
+    _name_counter: dict = {}  # dedup suffix for same-named excluded files
 
     # ── 4. Start WPS ──
     app = None
@@ -998,10 +999,14 @@ def merge_payrolls_simple(
             tgt_ws.PageSetup.RightMargin = RIGHT_MARGIN_PT
             tgt_ws.PageSetup.PrintTitleRows = ""
 
-            # ── Save ──
+            # ── Save (with dedup suffix for same-named excluded files) ──
             ym_part = f"_{ym_display}" if ym_display else ""
-            safe_key = re.sub(r'[\\/:*?"<>|]', '_', _disp(group_key))
-            output_name = f"{safe_key}_工资表合集{ym_part}.xlsx"
+            disp_name = _disp(group_key)
+            name_used = _name_counter.setdefault(disp_name, 0) + 1
+            _name_counter[disp_name] = name_used
+            safe_key = re.sub(r'[\\/:*?"<>|]', '_', disp_name)
+            name_suffix = f"_{name_used}" if name_used > 1 else ""
+            output_name = f"{safe_key}_工资表合集{ym_part}{name_suffix}.xlsx"
             output_dir_abs = str(Path(output_dir).resolve())
             Path(output_dir_abs).mkdir(parents=True, exist_ok=True)
             output_path = str(Path(output_dir_abs, output_name))
