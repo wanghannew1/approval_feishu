@@ -15,6 +15,31 @@ from app.payroll_merger import (
     merge_payrolls_simple,
 )
 
+# ── settings persistence ─────────────────────────────────────────────────────
+_SETTINGS_FILE = _PROJECT_ROOT / "settings.json"
+
+def _load_merge_settings() -> dict:
+    try:
+        with open(_SETTINGS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return {
+            "payroll_dir": data.get("merge_payroll_dir", ""),
+            "output_dir": data.get("merge_output_dir", ""),
+        }
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"payroll_dir": "", "output_dir": ""}
+
+def _save_merge_settings(payroll_dir: str, output_dir: str) -> None:
+    try:
+        with open(_SETTINGS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        data = {}
+    data["merge_payroll_dir"] = payroll_dir
+    data["merge_output_dir"] = output_dir
+    with open(_SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
 # ── page setup ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="工资表合并", page_icon="🗂️", layout="wide")
 
@@ -24,14 +49,26 @@ if "merge_results" not in st.session_state:
 if "wps_available" not in st.session_state:
     st.session_state.wps_available = check_wps_available()
 
+_saved = _load_merge_settings()
+if "merge_payroll_dir" not in st.session_state or not st.session_state.merge_payroll_dir.strip():
+    st.session_state.merge_payroll_dir = _saved["payroll_dir"]
+if "merge_output_dir" not in st.session_state or not st.session_state.merge_output_dir.strip():
+    st.session_state.merge_output_dir = _saved["output_dir"]
+
 # ── sidebar ─────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("⚙️ 设置")
     st.text_input("工资表目录", key="merge_payroll_dir",
                    placeholder="例如: ./downloads/signed")
-    st.text_input("输出目录", key="merge_output_dir",
+    st.text_input("输出目录(可选)", key="merge_output_dir",
                    placeholder="留空自动生成")
-    st.caption("留空将在工作目录创建 merged_payrolls_{timestamp}")
+    st.caption("留空自动在工资表目录旁创建 merged_payrolls_{timestamp}")
+    if st.button("💾 记住路径", use_container_width=True):
+        _save_merge_settings(
+            st.session_state.merge_payroll_dir.strip(),
+            st.session_state.merge_output_dir.strip(),
+        )
+        st.success("路径已保存，下次启动自动加载", icon="✅")
 
     st.divider()
 
