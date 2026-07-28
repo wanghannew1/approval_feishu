@@ -319,6 +319,38 @@ def render_sidebar():
                 else:
                     st.warning("该列名已存在")
 
+        with st.expander("✏️ 签字提示词映射"):
+            payroll_cfg = _load_payroll_config()
+            rules = payroll_cfg.setdefault("text_normalization", {}).setdefault("rules", [])
+            st.caption("原始提示词归一化为标准关键词（从上到下依次匹配替换）：")
+
+            if rules:
+                for i, rule in enumerate(rules):
+                    src = rule.get("source", "")
+                    tgt = rule.get("target", "")
+                    c1, c2, c3 = st.columns([3, 3, 1])
+                    c1.text(src)
+                    c2.text(f"→ {tgt}")
+                    if c3.button("🗑️", key=f"del_norm_{i}"):
+                        rules.pop(i)
+                        _save_payroll_config(payroll_cfg)
+                        st.rerun()
+                st.caption("---")
+            else:
+                st.caption("（无映射规则）")
+
+            c1, c2 = st.columns(2)
+            new_src = c1.text_input("原始提示词", key="new_norm_src", placeholder="例：分管领导签字")
+            new_tgt = c2.text_input("映射为目标", key="new_norm_tgt", placeholder="例：分管领导审核")
+            if st.button("➕ 添加规则", key="add_norm", use_container_width=True):
+                if new_src.strip() and new_tgt.strip():
+                    rules.append({"source": new_src.strip(), "target": new_tgt.strip()})
+                    _save_payroll_config(payroll_cfg)
+                    st.success(f"已添加: {new_src.strip()} → {new_tgt.strip()}")
+                    st.rerun()
+                else:
+                    st.warning("请填写原始提示词和目标关键词")
+
         with st.expander("📇 通讯录导入"):
             user_mapping = _load_user_mapping()
             st.caption(f"已导入 {len(user_mapping)} 人")
