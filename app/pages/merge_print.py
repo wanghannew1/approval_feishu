@@ -212,8 +212,7 @@ if merge_results:
         # 每个文件一个 checkbox
         selected_for_print = []
         for f in output_files:
-            key = f"print_{hash(f)}"
-            checked = st.checkbox(f"📄 {f}", value=True, key=key)
+            checked = st.checkbox(f"📄 {f}", value=True, key=f"pf_{Path(f).name}")
             if checked:
                 selected_for_print.append(f)
 
