@@ -40,5 +40,10 @@
     "force_delete_columns": {
         "description": "即使有数据也强制删除的列（按行3表头名称匹配），财务打印不需要这些列",
         "columns": ["岗位"]
+    },
+
+    "remove_empty_columns": {
+        "description": "删除完全无数据的空列（仅含签字提示词的列也会删除，提示词右移保存）",
+        "enabled": true
     }
 }

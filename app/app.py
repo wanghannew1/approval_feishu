@@ -29,6 +29,7 @@ from app.batch_processor import (
     is_approval_passed,
     is_ready_for_print,
     process_single_approval,
+    reload_payroll_config,
 )
 from app.feishu_api import (
     approve_task,
@@ -47,6 +48,7 @@ load_dotenv()
 DEFINITIONS_FILE = Path(__file__).parent / "approval_definitions.json"
 SETTINGS_FILE = Path(__file__).parent / "settings.json"
 USER_MAPPING_FILE = Path(__file__).parent / "user_mapping.json"
+PAYROLL_CONFIG_FILE = Path(__file__).parent / "payroll_sheet_config.json"
 
 _DEFAULT_DEFINITIONS = {
     "1CF34ABB-781C-40B0-9A4F-3CC416612423": "项目人员工资发放审批单（系统工资单）",
@@ -77,6 +79,20 @@ def _load_settings():
 def _save_settings(data):
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _load_payroll_config():
+    try:
+        with open(PAYROLL_CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"force_delete_columns": {"columns": []}}
+
+
+def _save_payroll_config(data):
+    with open(PAYROLL_CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    reload_payroll_config()  # 让 batch_processor 下次读取时重新加载
 
 
 def _load_user_mapping():
@@ -263,6 +279,45 @@ def render_sidebar():
                 settings["download_path"] = download_path.strip() or "./downloads"
                 _save_settings(settings)
                 st.success("已保存")
+
+        with st.expander("🗑️ 列删除设置"):
+            payroll_cfg = _load_payroll_config()
+
+            # 空数据列删除开关
+            rm_empty = payroll_cfg.setdefault("remove_empty_columns", {}).setdefault("enabled", True)
+            toggle = st.checkbox("删除空数据列", value=rm_empty, key="rm_empty_toggle",
+                                 help="删除完全无数据的列，仅含签字提示词的列也会删除（提示词自动右移保存）")
+            if toggle != rm_empty:
+                payroll_cfg["remove_empty_columns"]["enabled"] = toggle
+                _save_payroll_config(payroll_cfg)
+                st.rerun()
+
+            st.divider()
+
+            # 强制删除列列表
+            force_cols = payroll_cfg.setdefault("force_delete_columns", {}).setdefault("columns", [])
+            st.caption("强制删除指定列（按第3行表头名称匹配），即使有数据也会删除。")
+
+            if force_cols:
+                for i, col_name in enumerate(force_cols):
+                    c1, c2 = st.columns([4, 1])
+                    c1.text(f"{i + 1}. {col_name}")
+                    if c2.button("删除", key=f"del_fc_{i}"):
+                        force_cols.pop(i)
+                        _save_payroll_config(payroll_cfg)
+                        st.rerun()
+            else:
+                st.caption("（无强制删除列）")
+
+            new_col = st.text_input("新增列名（按第3行表头名称）", key="new_force_col", placeholder="例如：部门")
+            if st.button("添加", key="add_force_col", width="stretch") and new_col.strip():
+                if new_col.strip() not in force_cols:
+                    force_cols.append(new_col.strip())
+                    _save_payroll_config(payroll_cfg)
+                    st.success(f"已添加: {new_col.strip()}")
+                    st.rerun()
+                else:
+                    st.warning("该列名已存在")
 
         with st.expander("📇 通讯录导入"):
             user_mapping = _load_user_mapping()

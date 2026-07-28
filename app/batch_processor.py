@@ -224,6 +224,12 @@ def get_approvers_with_roles(details: dict, role_mapping_path: Optional[Path] = 
 _PAYROLL_CONFIG = None
 
 
+def reload_payroll_config():
+    """Force reload payroll config from disk on next get_payroll_config() call."""
+    global _PAYROLL_CONFIG
+    _PAYROLL_CONFIG = None
+
+
 def get_payroll_config() -> dict:
     """Load payroll sheet detection rules from config file."""
     global _PAYROLL_CONFIG
@@ -1353,9 +1359,9 @@ def _insert_signature_to_excel_openpyxl(
 
             # 必须在列删除前执行，否则合并范围地址会失准
             _flatten_header_merges(payroll_ws)
-            # 删除用户配置的强制删除列（如"岗位"有数据，但财务打印不需要）
             _remove_force_delete_columns(payroll_ws, cfg, formula_values)
-            _remove_empty_columns(payroll_ws, cfg, formula_values)
+            if cfg.get("remove_empty_columns", {}).get("enabled", True):
+                _remove_empty_columns(payroll_ws, cfg, formula_values)
             # 列删除后根据实际单元格值重新合并相邻相同表头
             _rebuild_header_merges(payroll_ws)
         else:
