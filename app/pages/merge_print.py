@@ -10,6 +10,7 @@ import json
 from app.payroll_merger import (
     batch_print,
     check_wps_available,
+    get_last_wps_error,
     _load_mapping_rules,
     merge_payrolls_simple,
 )
@@ -38,7 +39,11 @@ with st.sidebar:
     if wps_ok:
         st.info("WPS: ✅ 可用")
     else:
-        st.info("⚠️ WPS 不可用（Windows only）")
+        wps_err = get_last_wps_error()
+        if wps_err:
+            st.error(f"⚠️ WPS 不可用\n\n`{wps_err}`")
+        else:
+            st.info("⚠️ WPS 不可用（Windows only）")
 
     st.divider()
     with st.expander("📊 汇总字段设置"):

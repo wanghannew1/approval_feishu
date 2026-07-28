@@ -236,6 +236,18 @@ def _format_yearmons(yearmon_set: set) -> str:
 #  WPS COM helpers
 # ════════════════════════════════════════════════════════════════
 
+# ── WPS COM error tracking ────────────────────────────────────────
+_wps_last_error: str = ""
+
+def _set_wps_error(msg: str) -> None:
+    global _wps_last_error
+    _wps_last_error = msg
+
+def get_last_wps_error() -> str:
+    """Return the last WPS COM check error message (empty if OK)."""
+    return _wps_last_error
+
+
 def check_wps_available() -> bool:
     """
     Check whether the WPS Office COM component (``KET.Application``)
@@ -252,7 +264,13 @@ def check_wps_available() -> bool:
         app = win32com.client.DispatchEx("KET.Application")
         app.Quit()
         return True
-    except (ImportError, Exception):
+    except ImportError:
+        _set_wps_error("pywin32 未安装，不在 Windows 环境")
+        return False
+    except Exception as e:
+        msg = f"{type(e).__name__}: {e}"
+        logger.warning("WPS COM check failed: %s", msg)
+        _set_wps_error(msg)
         return False
 
 
@@ -490,11 +508,23 @@ def merge_payrolls_simple(
 
     # ── 3. Group by big org ──
     groups: dict = defaultdict(list)
+    group_display: dict = {}  # internal_key → display name for title/filename
+    excl_counter = 0
     for info in file_infos:
-        key = info["unit_name"] if info["excluded"] else info["big_org"]
+        if info["excluded"]:
+            excl_counter += 1
+            # Each excluded file gets its own group (no sibling merging)
+            key = f"__excl_{excl_counter}"
+            group_display[key] = info["unit_name"]
+        else:
+            key = info["big_org"]
         if not key or not key.strip():
             key = Path(info["fname"]).stem  # fallback to filename stem
         groups[key].append(info)
+
+    def _disp(gk: str) -> str:
+        """User-facing group name (hide internal keys)."""
+        return group_display.get(gk, gk)
 
     if progress_callback:
         progress_callback(
@@ -515,7 +545,7 @@ def merge_payrolls_simple(
             if progress_callback:
                 progress_callback(
                     group_idx, len(groups),
-                    f"合并组: {group_key}（{len(items)} 个工资表）",
+                    f"合并组: {_disp(group_key)}（{len(items)} 个工资表）",
                 )
 
             all_yearmons: set = set(info["yearmon"] for info in items)
@@ -534,7 +564,7 @@ def merge_payrolls_simple(
             # ── Create target workbook ──
             tgt_wb = app.Workbooks.Add()
             tgt_ws = tgt_wb.ActiveSheet
-            safe_name = re.sub(r'[\\/?*\[\]:]', '', group_key)[:31] or "未命名"
+            safe_name = re.sub(r'[\\/?*\[\]:]', '', _disp(group_key))[:31] or "未命名"
             tgt_ws.Name = safe_name
 
             # ── Read totals & column fingerprints per source file ──
@@ -715,7 +745,7 @@ def merge_payrolls_simple(
             # ── Write header rows ──
             r = 1
             # Row 1: title
-            title = f"{group_key} 工资表合集"
+            title = f"{_disp(group_key)} 工资表合集"
             if ym_display:
                 title += f"（{ym_display}）"
             tgt_ws.Cells(r, 1).Value = title
@@ -735,7 +765,7 @@ def merge_payrolls_simple(
 
             # Row 2: unit name + date
             right_start = virtual_cols - 3 if virtual_cols > 6 else 4
-            tgt_ws.Cells(r, 1).Value = f"单位名称：{group_key}"
+            tgt_ws.Cells(r, 1).Value = f"单位名称：{_disp(group_key)}"
             tgt_ws.Range(
                 tgt_ws.Cells(r, 1), tgt_ws.Cells(r, right_start - 1)
             ).Merge()
@@ -970,7 +1000,7 @@ def merge_payrolls_simple(
 
             # ── Save ──
             ym_part = f"_{ym_display}" if ym_display else ""
-            safe_key = re.sub(r'[\\/:*?"<>|]', '_', group_key)
+            safe_key = re.sub(r'[\\/:*?"<>|]', '_', _disp(group_key))
             output_name = f"{safe_key}_工资表合集{ym_part}.xlsx"
             output_dir_abs = str(Path(output_dir).resolve())
             Path(output_dir_abs).mkdir(parents=True, exist_ok=True)
