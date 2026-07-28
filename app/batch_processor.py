@@ -1183,7 +1183,7 @@ def _calc_data_font_size(ws, col_widths: dict) -> float:
     return 11
 
 
-def _auto_column_width(ws, cfg=None, min_width: float = 6, max_width: float = 14):
+def _auto_column_width(ws, cfg=None, min_width: float = 6, max_width: float = 20):
     """
     自适应列宽 + 统一数据区字号，避免打印时 ### 溢出或列过宽导致缩放字太小。
 
@@ -1611,8 +1611,9 @@ def _insert_signature_to_excel_openpyxl(
             text_cell.font = Font(size=10)
 
             # 根据提示词文本宽度计算图片偏移量，使签名紧跟在文字后方
+            # 留两个字余量（约 20px），避免签名与提示词重叠
             text_val = str(text_cell.value) if text_cell.value else ""
-            off_emu = _estimate_text_render_width(text_val, 10) + pixels_to_EMU(3)  # 3px 间距
+            off_emu = _estimate_text_render_width(text_val, 10) + int(20 * 914400 / 96)
 
             img = XLImage(str(sig_path))
             img.width = 120
