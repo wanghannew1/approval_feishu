@@ -324,8 +324,12 @@ def print_file(
             ws.PageSetup.FitToPagesTall = 0
             if repeat_header:
                 ws.PageSetup.PrintTitleRows = "$1:$5"
-            else:
-                ws.PageSetup.PrintTitleRows = ""
+            # else: leave PrintTitleRows as-is — the file was saved
+            # without PrintTitleRows during merge, so the blank
+            # setting is already correct.  WPS COM may ignore an
+            # explicit "" assignment on a property that was already
+            # empty at file-open time, causing stale cached headers
+            # from the template to reappear.
 
             # Fix picture row height so images are not compressed
             try:
@@ -393,7 +397,10 @@ def batch_print(
         if progress_callback:
             progress_callback(i + 1, total, f"正在打印: {filepath}")
 
-        ok = print_file(filepath, progress_callback)
+        # Merged "合集" files already contain embedded headers in each
+        # source sheet — do NOT repeat virtual headers on every page.
+        is_merged = "_工资表合集" in Path(filepath).name
+        ok = print_file(filepath, progress_callback, repeat_header=not is_merged)
         if ok:
             success_count += 1
         else:
