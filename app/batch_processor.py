@@ -33,23 +33,24 @@ except ImportError:
     pass
 
 
-def _print_with_com(file_path: Path, printer_name: Optional[str] = None) -> Tuple[bool, str]:
-    """Print using WPS/Excel COM (Windows only).
+def _try_com_progid(progid: str, file_path: Path,
+                    printer_name: Optional[str] = None,
+                    max_retries: int = 3) -> Tuple[bool, str]:
+    """Try printing via a specific COM ProgID (e.g. ``KET.Application``).
 
+    Retries up to *max_retries* times on failure.
     Returns ``(success, error_message)``.
     """
-    if platform.system() != "Windows":
-        return False, "非 Windows 环境"
-    try:
-        import pythoncom
-        import win32com.client
+    import time
+    import pythoncom
+    import win32com.client
 
-        pythoncom.CoInitialize()
+    pythoncom.CoInitialize()
+    for attempt in range(1, max_retries + 1):
         app = None
         wb = None
-
         try:
-            app = win32com.client.DispatchEx("Excel.Application")
+            app = win32com.client.DispatchEx(progid)
             app.Visible = False
             app.DisplayAlerts = False
 
@@ -71,10 +72,12 @@ def _print_with_com(file_path: Path, printer_name: Optional[str] = None) -> Tupl
             return True, ""
         except Exception as e:
             import traceback as _tb
-            detail = f"{type(e).__name__}: {e}"
-            logger.warning(f"[PRINT] WPS/Excel打印失败: {detail}")
-            logger.warning(f"[PRINT] traceback: {_tb.format_exc()[:500]}")
-            return False, detail
+            detail = f"[{progid}] attempt {attempt}/{max_retries}: {type(e).__name__}: {e}"
+            logger.warning(f"[PRINT] {detail}")
+            if attempt >= max_retries:
+                logger.warning(f"[PRINT] traceback: {_tb.format_exc()[:500]}")
+            if attempt < max_retries:
+                time.sleep(5)
         finally:
             try:
                 if wb:
@@ -83,12 +86,33 @@ def _print_with_com(file_path: Path, printer_name: Optional[str] = None) -> Tupl
                     app.Quit()
             except Exception:
                 pass
-            try:
-                pythoncom.CoUninitialize()
-            except Exception:
-                pass
+    return False, detail  # last error detail
+
+
+def _print_with_com(file_path: Path, printer_name: Optional[str] = None) -> Tuple[bool, str]:
+    """Print using WPS/Excel COM (Windows only).
+
+    Tries ``KET.Application`` (WPS) first, then ``Excel.Application``
+    (Microsoft Office), each with retries.  Returns ``(success, error_message)``.
+    """
+    if platform.system() != "Windows":
+        return False, "非 Windows 环境"
+    try:
+        import pythoncom
+        import win32com.client
     except ImportError:
         return False, "win32com 未安装"
+
+    # WPS COM first → matches the working merge_print path
+    ok, err = _try_com_progid("KET.Application", file_path, printer_name)
+    if ok:
+        return True, ""
+
+    # Fall back to Microsoft Excel COM
+    ok, err2 = _try_com_progid("Excel.Application", file_path, printer_name)
+    if ok:
+        return True, ""
+    return False, f"WPS: {err} | Excel: {err2}"
 
 
 def _print_with_libreoffice(file_path: Path, printer_name: Optional[str] = None) -> Tuple[bool, str]:
