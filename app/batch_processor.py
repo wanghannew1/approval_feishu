@@ -1501,9 +1501,9 @@ def _insert_signature_to_excel_openpyxl(
             if role and role in positions:
                 row, col = positions[role]
                 old_val = payroll_ws.cell(row=row, column=col).value
-                payroll_ws.cell(row=row, column=col).value = role
+                payroll_ws.cell(row=row, column=col).value = f"{role}："
                 logger.info(f"[SIGN] Rewrote cell ({row},{col}) "
-                            f"'{old_val}' → '{role}'")
+                            f"'{old_val}' → '{role}：'")
 
         for approver in approvers:
             role = approver.get("role")
