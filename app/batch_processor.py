@@ -17,6 +17,11 @@ from typing import Any, Dict, List, Optional, Tuple
 from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
 from openpyxl.drawing.image import Image as XLImage
+from openpyxl.drawing.spreadsheet_drawing import (
+    AnchorMarker,
+    OneCellAnchor,
+    pixels_to_EMU,
+)
 from openpyxl.styles import Alignment, Border, Font, Side
 from openpyxl.utils import get_column_letter
 
@@ -1240,6 +1245,64 @@ def _auto_column_width(ws, cfg=None, min_width: float = 6, max_width: float = 14
             if cell.value is not None and cell.font.size and cell.font.size != data_font_size:
                 cell.font = Font(size=data_font_size, name=cell.font.name)
 
+    # --- 4. 字号调整后复查列宽，避免数字 #### 溢出 + 文本换行 ---
+    # 列宽在步骤 1 中按默认 11pt 基准计算，若步骤 2 确定的字号较大，
+    # 数值型内容的实际渲染宽度可能超过列宽，导致 Excel 显示 ####。
+    # 数值列：按实际字号比例放大列宽。
+    # 文本列：开启自动换行，不无限加宽。
+    if data_font_size > 11:
+        _SCALE = data_font_size / 11.0
+        for col in range(1, ws.max_column + 1):
+            col_letter = get_column_letter(col)
+            cur_w = ws.column_dimensions[col_letter].width or 0
+            if cur_w <= 0:
+                continue
+            needed = 0
+            has_numeric = False
+            has_text_overflow = False
+            for row in range(4, ws.max_row + 1):
+                for c in range(1, ws.max_column + 1):
+                    v = ws.cell(row=row, column=c).value
+                    if v and any(kw in str(v) for kw in sig_keywords):
+                        break
+                else:
+                    cell = ws.cell(row=row, column=col)
+                    val = cell.value
+                    if val is not None and not (
+                        isinstance(val, str) and val.startswith("=")
+                    ):
+                        sw = _estimate_col_width(val) * _SCALE
+                        if sw > needed:
+                            needed = sw
+                        # 区分数值和文本
+                        if isinstance(val, (int, float)) or (
+                            isinstance(val, str) and re.match(r'^[\d\-,.]', val)
+                        ):
+                            has_numeric = True
+                        else:
+                            if sw > cur_w:
+                                has_text_overflow = True
+            if has_numeric and needed > cur_w:
+                ws.column_dimensions[col_letter].width = round(needed + 0.5)
+                logger.info(
+                    f"[COL] 数值列 {col_letter} 加宽 "
+                    f"{cur_w}→{round(needed + 0.5)} "
+                    f"(字号 {data_font_size}pt)"
+                )
+            if has_text_overflow:
+                # 文本超长：整列开启自动换行，避免 #### 且不撑爆列宽
+                for row in range(4, ws.max_row + 1):
+                    cell = ws.cell(row=row, column=col)
+                    if cell.value is not None and cell.alignment:
+                        cell.alignment = Alignment(
+                            horizontal=cell.alignment.horizontal,
+                            vertical=cell.alignment.vertical,
+                            wrap_text=True,
+                        )
+                    elif cell.value is not None:
+                        cell.alignment = Alignment(wrap_text=True)
+                logger.info(f"[COL] 文本列 {col_letter} 开启自动换行")
+
 
 def _hide_columns(ws):
     headers_to_hide = {"部门", "岗位", "职工号"}
@@ -1413,6 +1476,23 @@ def _generate_dynamic_normalization_rules(approvers: List[Dict]) -> List[dict]:
     return rules
 
 
+def _estimate_text_render_width(text: str, font_size_pt: float) -> int:
+    """Estimate the rendered pixel width of a piece of text in a given font size.
+
+    Chinese / fullwidth characters are assumed to be roughly ``font_size`` px
+    wide; ASCII / halfwidth characters are ``font_size * 0.6`` px.  The return
+    value can be used as a ``OneCellAnchor.colOff`` EMU offset so an image
+    starts immediately after the text.
+    """
+    px = 0.0
+    for ch in text:
+        if '\u4e00' <= ch <= '\u9fff' or '\uff00' <= ch <= '\uffef':
+            px += font_size_pt
+        else:
+            px += font_size_pt * 0.6
+    return int(px * 914400 / 96)  # px → EMU at 96 DPI
+
+
 def _insert_signature_to_excel_openpyxl(
     excel_path: Path,
     approvers: List[Dict],
@@ -1524,18 +1604,28 @@ def _insert_signature_to_excel_openpyxl(
                 continue
 
             row, col = positions[role]
-            target_col = _split_merged_for_text(payroll_ws, row, col)
+            _split_merged_for_text(payroll_ws, row, col)
 
             text_cell = payroll_ws.cell(row=row, column=col)
             text_cell.font = Font(size=10)
 
+            # 根据提示词文本宽度计算图片偏移量，使签名紧跟在文字后方
+            text_val = str(text_cell.value) if text_cell.value else ""
+            off_emu = _estimate_text_render_width(text_val, 10) + pixels_to_EMU(3)  # 3px 间距
+
             img = XLImage(str(sig_path))
             img.width = 120
             img.height = 60
-            cell_addr = f"{payroll_ws.cell(row=row, column=target_col).coordinate}"
-            payroll_ws.add_image(img, cell_addr)
+            anchor = OneCellAnchor(
+                _from=AnchorMarker(
+                    col=col - 1, row=row - 1,
+                    colOff=off_emu, rowOff=0,
+                ),
+                ext=img.ext,
+            )
+            payroll_ws.add_image(img, anchor)
             inserted_roles.append(role)
-            logger.info(f"[SIGN] Inserted signature for {role} at {cell_addr}")
+            logger.info(f"[SIGN] Inserted signature for {role} ({text_val}) offset={off_emu}")
 
         sig_rows = {r for r, _ in positions.values()}
         for r in sig_rows:
