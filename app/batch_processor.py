@@ -1399,10 +1399,19 @@ def _auto_column_width(ws, cfg=None, formula_values: Optional[dict] = None,
                 )
             is_id_card = col == id_card_col
             if is_id_card:
-                # 身份证号一行显示 18 位数字，不受 max_width 限制
-                min_w = max(needed + 0.5, 22)
+                # 身份证号一行显示 18 位数字：加宽 + 强制不换行
+                min_w = max(needed + 0.5, 28)
                 if cur_w < min_w:
                     ws.column_dimensions[col_letter].width = min_w
+                for row in range(4, ws.max_row + 1):
+                    cell = ws.cell(row=row, column=col)
+                    if cell.value is not None:
+                        al = cell.alignment
+                        cell.alignment = Alignment(
+                            horizontal=al.horizontal if al else None,
+                            vertical=al.vertical if al else None,
+                            wrap_text=False,
+                        )
             if has_text_overflow and not is_id_card:
                 for row in range(4, ws.max_row + 1):
                     if _is_sig_keyword_row(ws, row, sig_keywords):
