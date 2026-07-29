@@ -1081,7 +1081,7 @@ def merge_payrolls_simple(
                         for _cc in range(1, src_last_col + 1):
                             _v = str(tgt_ws.Cells(_rr, _cc).Value or '')
                             if any(_kw in _v for _kw in _sig_kws):
-                                tgt_ws.Rows(_rr).RowHeight = 45
+                                tgt_ws.Rows(_rr).RowHeight = 50
                                 break
 
                     # Right-align "制表人" cells; widen cols with signature prompts
