@@ -517,6 +517,7 @@ def merge_payrolls_simple(
                 signed_files.append(Path(root, f).as_posix())
     signed_files.sort()
 
+    logger.info(f"扫描到 {len(signed_files)} 个已签名工资表")
     if not signed_files:
         return [], ["未找到 signed_*.xlsx 文件"], {}
 
@@ -579,6 +580,9 @@ def merge_payrolls_simple(
                     group_idx, len(groups),
                     f"合并组: {_disp(group_key)}（{len(items)} 个工资表）",
                 )
+
+            _disp_name = _disp(group_key)
+            logger.info(f"组 {group_idx}/{len(groups)}: {_disp_name}（{len(items)} 个表）")
 
             all_yearmons: set = set(info["yearmon"] for info in items)
             ym_display = _format_yearmons(all_yearmons)
@@ -1071,30 +1075,14 @@ def merge_payrolls_simple(
                             tgt_ws.Columns(_id_col).ColumnWidth = 28
                         tgt_ws.Columns(_id_col).WrapText = False
 
-                    # Signature row height: match tallest signature image in that row
+                    # Signature row height: 45pt matches 60px signature images in source files
                     _sig_kws = ["总经理签字", "分管领导审核", "财务审核", "业务审核"]
-                    _sig_rows_found = set()
                     for _rr in range(current_row, current_row + src_last_row):
                         for _cc in range(1, src_last_col + 1):
                             _v = str(tgt_ws.Cells(_rr, _cc).Value or '')
                             if any(_kw in _v for _kw in _sig_kws):
-                                _sig_rows_found.add(_rr)
+                                tgt_ws.Rows(_rr).RowHeight = 45
                                 break
-                    if _sig_rows_found:
-                        try:
-                            for _pi in range(1, tgt_ws.Pictures.Count + 1):
-                                _pic = tgt_ws.Pictures(_pi)
-                                _pic_mid = _pic.Top + _pic.Height / 2
-                                for _sr in list(_sig_rows_found):
-                                    _row_top = tgt_ws.Rows(_sr).Top
-                                    _row_bot = _row_top + tgt_ws.Rows(_sr).Height
-                                    if _row_top <= _pic_mid <= _row_bot:
-                                        _new_h = max(tgt_ws.Rows(_sr).Height or 0, _pic.Height + 4)
-                                        if _new_h > (tgt_ws.Rows(_sr).Height or 0):
-                                            tgt_ws.Rows(_sr).RowHeight = _new_h
-                                        _sig_rows_found.discard(_sr)
-                        except Exception:
-                            pass
 
                     # Right-align "制表人" cells; widen cols with signature prompts
                     for _rr in range(current_row, current_row + src_last_row):
@@ -1115,9 +1103,11 @@ def merge_payrolls_simple(
                                     break
 
                     src_wb.Close(SaveChanges=False)
+                    logger.info(f"  粘贴完成: {info['fname']}（{src_last_row} 行）")
                     current_row += src_last_row + 3  # 3 blank rows between tables
                 except Exception as e:
                     warnings_list.append(f"复制失败: {info['fname']} - {e}")
+                    logger.warning(f"  粘贴失败: {info['fname']} - {e}")
 
             # ── Page setup ──
             tgt_ws.PageSetup.Orientation = 2
@@ -1155,6 +1145,7 @@ def merge_payrolls_simple(
                 warnings_list.append(f"文件名包含特殊字符，已保存为: {Path(fallback_path).name}")
             tgt_wb.Close(SaveChanges=True)
             output_files.append(output_path)
+            logger.info(f"  已保存: {output_path}")
 
         if progress_callback:
             progress_callback(
