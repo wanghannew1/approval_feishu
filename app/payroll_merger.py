@@ -17,6 +17,18 @@ import openpyxl
 
 logger = logging.getLogger(__name__)
 
+# ── Helper: estimate display width for column auto-sizing ──
+def _com_estimate_width(val) -> float:
+    """Estimate WPS column-width units needed to display ``val`` in 宋体 9pt."""
+    s = str(val) if val is not None else ""
+    w = 0.0
+    for ch in s:
+        if '\u4e00' <= ch <= '\u9fff' or '\u3000' <= ch <= '\u303f':
+            w += 2.0
+        else:
+            w += 1.0
+    return w
+
 # ── Global caches for mapping rules ──
 _MAPPING_RULES_CACHE: Optional[List[Tuple[str, str, str, bool]]] = None
 _MAPPING_EXCEL: Optional[Path] = None
@@ -782,6 +794,9 @@ def merge_payrolls_simple(
             ).Font.Size = 16
             tgt_ws.Range(
                 tgt_ws.Cells(r, 1), tgt_ws.Cells(r, virtual_cols)
+            ).Font.Name = "宋体"
+            tgt_ws.Range(
+                tgt_ws.Cells(r, 1), tgt_ws.Cells(r, virtual_cols)
             ).HorizontalAlignment = -4108
             r += 1
 
@@ -961,7 +976,14 @@ def merge_payrolls_simple(
             max_unit_len = max((len(info.get("unit_name", "")) for info in items), default=0)
             tgt_ws.Columns(2).ColumnWidth = max(12, max_unit_len)
             for vi in range(3, virtual_cols + 1):
-                tgt_ws.Columns(vi).ColumnWidth = 12
+                max_w = 0.0
+                for _vr in range(data_start_row - 3, virtual_end_row + 1):
+                    _v = tgt_ws.Cells(_vr, vi).Value
+                    if _v is not None:
+                        _ew = _com_estimate_width(_v)
+                        if _ew > max_w:
+                            max_w = _ew
+                tgt_ws.Columns(vi).ColumnWidth = max(12, round(max_w + 2))
             brd = tgt_ws.Range(
                 tgt_ws.Cells(data_start_row - 3, 1),
                 tgt_ws.Cells(virtual_end_row, virtual_cols),
@@ -973,6 +995,14 @@ def merge_payrolls_simple(
                 tgt_ws.Cells(data_start_row - 3, 2),
                 tgt_ws.Cells(virtual_end_row, 2),
             ).HorizontalAlignment = 1
+            tgt_ws.Range(
+                tgt_ws.Cells(data_start_row - 3, 1),
+                tgt_ws.Cells(virtual_end_row, virtual_cols),
+            ).Font.Name = "宋体"
+            tgt_ws.Range(
+                tgt_ws.Cells(data_start_row - 3, 1),
+                tgt_ws.Cells(virtual_end_row, virtual_cols),
+            ).Font.Size = 9
             r += 2
 
             # ── Paste original worksheets (cross-workbook copy) ──
@@ -994,6 +1024,29 @@ def merge_payrolls_simple(
                     tgt_cell = tgt_ws.Cells(current_row, 1)
                     tgt_ws.Paste(tgt_cell)
                     app.CutCopyMode = False
+
+                    # 宋体 9pt for pasted data cells
+                    _paste_range = tgt_ws.Range(
+                        tgt_ws.Cells(current_row, 1),
+                        tgt_ws.Cells(current_row + src_last_row - 1, src_last_col),
+                    )
+                    _paste_range.Font.Name = "宋体"
+                    _paste_range.Font.Size = 9
+
+                    # Auto-fit column widths for pasted data (Paste doesn't copy widths)
+                    # Skip title row (row 1) and unit row (row 2) — merged cells skew widths
+                    for _pc in range(1, src_last_col + 1):
+                        _max_cw = 0.0
+                        for _pr in range(current_row + 2, current_row + src_last_row):
+                            _pv = tgt_ws.Cells(_pr, _pc).Value
+                            if _pv is not None:
+                                _ew = _com_estimate_width(_pv)
+                                if _ew > _max_cw:
+                                    _max_cw = _ew
+                        _cur_w = tgt_ws.Columns(_pc).ColumnWidth or 0
+                        _desired = round(_max_cw + 2)
+                        if _desired > _cur_w:
+                            tgt_ws.Columns(_pc).ColumnWidth = _desired
 
                     # Right-align "制表人" cells; widen cols with signature prompts
                     _sig_kws = ["总经理签字", "分管领导审核", "财务审核", "业务审核"]

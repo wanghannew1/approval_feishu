@@ -1348,7 +1348,7 @@ def _auto_column_width(ws, cfg=None, formula_values: Optional[dict] = None,
         for col in range(1, ws.max_column + 1):
             cell = ws.cell(row=row, column=col)
             if cell.value is not None and cell.font.size and cell.font.size != data_font_size:
-                cell.font = Font(size=data_font_size, name=cell.font.name)
+                cell.font = Font(size=data_font_size, name='宋体')
 
     # --- 4. 查找身份证列（row 3 表头含"身份证"）---
     id_card_col = None
