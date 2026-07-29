@@ -700,11 +700,9 @@ def merge_payrolls_simple(
                     src_c = cm.get(vi)
                     if src_c is None:
                         continue
-                    if src_c not in ft or ft[src_c] is None:
-                        # Column exists but has no total row value — still include it
-                        has_data = True
-                        break
-                    v = ft[src_c]
+                    v = ft.get(src_c)
+                    if v is None:
+                        continue
                     try:
                         if float(v) != 0:
                             has_data = True
