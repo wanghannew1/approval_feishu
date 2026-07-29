@@ -17,7 +17,19 @@ import openpyxl
 
 logger = logging.getLogger(__name__)
 
-# ── Helper: estimate display width for column auto-sizing ──
+# ── Helpers for column auto-sizing ──
+def _is_numeric_com(v) -> bool:
+    """Check if a COM cell value represents a number (int/float or numeric string)."""
+    if isinstance(v, (int, float)):
+        return True
+    if isinstance(v, str):
+        try:
+            float(v)
+            return True
+        except (ValueError, TypeError):
+            pass
+    return False
+
 def _com_estimate_width(val) -> float:
     """Estimate WPS column-width units needed to display ``val`` in 宋体 9pt."""
     s = str(val) if val is not None else ""
@@ -976,14 +988,11 @@ def merge_payrolls_simple(
             max_unit_len = max((len(info.get("unit_name", "")) for info in items), default=0)
             tgt_ws.Columns(2).ColumnWidth = max(12, max_unit_len)
             for vi in range(3, virtual_cols + 1):
-                max_w = 0.0
-                for _vr in range(data_start_row - 3, virtual_end_row + 1):
-                    _v = tgt_ws.Cells(_vr, vi).Value
-                    if _v is not None:
-                        _ew = _com_estimate_width(_v)
-                        if _ew > max_w:
-                            max_w = _ew
-                tgt_ws.Columns(vi).ColumnWidth = max(12, round(max_w + 2))
+                _max_w = 0.0
+                _v = tgt_ws.Cells(virtual_end_row, vi).Value
+                if _v is not None and _is_numeric_com(_v):
+                    _max_w = _com_estimate_width(_v)
+                tgt_ws.Columns(vi).ColumnWidth = max(12, round(_max_w + 2))
             brd = tgt_ws.Range(
                 tgt_ws.Cells(data_start_row - 3, 1),
                 tgt_ws.Cells(virtual_end_row, virtual_cols),
@@ -1033,20 +1042,21 @@ def merge_payrolls_simple(
                     _paste_range.Font.Name = "宋体"
                     _paste_range.Font.Size = 9
 
-                    # Auto-fit column widths for pasted data (Paste doesn't copy widths)
-                    # Skip title row (row 1) and unit row (row 2) — merged cells skew widths
-                    for _pc in range(1, src_last_col + 1):
-                        _max_cw = 0.0
-                        for _pr in range(current_row + 2, current_row + src_last_row):
-                            _pv = tgt_ws.Cells(_pr, _pc).Value
-                            if _pv is not None:
+                    # Find the 合计 row and use only its numeric values for column width
+                    _total_row = None
+                    for _pr in range(current_row, current_row + src_last_row):
+                        if str(tgt_ws.Cells(_pr, 1).Value or '').strip() == '合计':
+                            _total_row = _pr
+                            break
+                    if _total_row is not None:
+                        for _pc in range(1, src_last_col + 1):
+                            _pv = tgt_ws.Cells(_total_row, _pc).Value
+                            if _pv is not None and _is_numeric_com(_pv):
                                 _ew = _com_estimate_width(_pv)
-                                if _ew > _max_cw:
-                                    _max_cw = _ew
-                        _cur_w = tgt_ws.Columns(_pc).ColumnWidth or 0
-                        _desired = round(_max_cw + 2)
-                        if _desired > _cur_w:
-                            tgt_ws.Columns(_pc).ColumnWidth = _desired
+                                _desired = round(_ew + 2)
+                                _cur_w = tgt_ws.Columns(_pc).ColumnWidth or 0
+                                if _desired > _cur_w:
+                                    tgt_ws.Columns(_pc).ColumnWidth = _desired
 
                     # Right-align "制表人" cells; widen cols with signature prompts
                     _sig_kws = ["总经理签字", "分管领导审核", "财务审核", "业务审核"]
