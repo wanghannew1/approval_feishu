@@ -1399,8 +1399,8 @@ def _auto_column_width(ws, cfg=None, formula_values: Optional[dict] = None,
                 )
             is_id_card = col == id_card_col
             if is_id_card:
-                # 身份证号尽量一行显示，不换行
-                min_w = min(max(needed + 0.5, 20), max_width)
+                # 身份证号一行显示 18 位数字，不受 max_width 限制
+                min_w = max(needed + 0.5, 22)
                 if cur_w < min_w:
                     ws.column_dimensions[col_letter].width = min_w
             if has_text_overflow and not is_id_card:
