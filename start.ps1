@@ -3,6 +3,9 @@
 
 Set-Location $PSScriptRoot
 
+$OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Feishu Approval Print Tool" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan

@@ -554,13 +554,13 @@ def _delete_cols_with_merge(ws, col, amount=1, saved_all=None):
     if saved_all is None:
         saved_all = list(ws.merged_cells.ranges)
 
-    ws.delete_cols(col, amount)
-
     for mr in list(ws.merged_cells.ranges):
         try:
             ws.unmerge_cells(str(mr))
         except Exception:
             pass
+
+    ws.delete_cols(col, amount)
 
     for mr in saved_all:
         mc, r0, mxc, rmax = mr.bounds
@@ -1350,7 +1350,15 @@ def _auto_column_width(ws, cfg=None, formula_values: Optional[dict] = None,
             if cell.value is not None and cell.font.size and cell.font.size != data_font_size:
                 cell.font = Font(size=data_font_size, name=cell.font.name)
 
-    # --- 4. 字号调整后复查列宽，避免数字 #### 溢出 + 文本换行 ---
+    # --- 4. 查找身份证列（row 3 表头含"身份证"）---
+    id_card_col = None
+    for col in range(1, ws.max_column + 1):
+        hdr = ws.cell(row=3, column=col).value
+        if hdr and "身份证" in str(hdr):
+            id_card_col = col
+            break
+
+    # --- 5. 字号调整后复查列宽，避免数字 #### 溢出 + 文本换行 ---
     if data_font_size > 11:
         _SCALE = data_font_size / 11.0
         for col in range(1, ws.max_column + 1):
@@ -1389,7 +1397,13 @@ def _auto_column_width(ws, cfg=None, formula_values: Optional[dict] = None,
                     f"{cur_w}→{round(needed + 0.5)} "
                     f"(字号 {data_font_size}pt)"
                 )
-            if has_text_overflow:
+            is_id_card = col == id_card_col
+            if is_id_card:
+                # 身份证号尽量一行显示，不换行
+                min_w = min(max(needed + 0.5, 20), max_width)
+                if cur_w < min_w:
+                    ws.column_dimensions[col_letter].width = min_w
+            if has_text_overflow and not is_id_card:
                 for row in range(4, ws.max_row + 1):
                     if _is_sig_keyword_row(ws, row, sig_keywords):
                         continue
@@ -1771,10 +1785,9 @@ def _insert_signature_to_excel_openpyxl(
 
         for (row, col) in positions.values():
             cell = payroll_ws.cell(row=row, column=col)
-            ca = cell.alignment
             cell.alignment = Alignment(
-                horizontal=ca.horizontal if ca else None,
-                vertical=ca.vertical if ca else None,
+                horizontal='left',
+                vertical='center',
                 wrap_text=True,
             )
 
