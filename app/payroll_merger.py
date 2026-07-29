@@ -1058,8 +1058,45 @@ def merge_payrolls_simple(
                                 if _desired > _cur_w:
                                     tgt_ws.Columns(_pc).ColumnWidth = _desired
 
-                    # Right-align "制表人" cells; widen cols with signature prompts
+                    # ID card column: force width >= 28, no wrap so 18 digits stay on one line
+                    _id_col = None
+                    _hdr_row = current_row + 2
+                    for _pc in range(1, src_last_col + 1):
+                        _hdr = str(tgt_ws.Cells(_hdr_row, _pc).Value or '')
+                        if '身份证' in _hdr:
+                            _id_col = _pc
+                            break
+                    if _id_col is not None:
+                        if (tgt_ws.Columns(_id_col).ColumnWidth or 0) < 28:
+                            tgt_ws.Columns(_id_col).ColumnWidth = 28
+                        tgt_ws.Columns(_id_col).WrapText = False
+
+                    # Signature row height: match tallest signature image in that row
                     _sig_kws = ["总经理签字", "分管领导审核", "财务审核", "业务审核"]
+                    _sig_rows_found = set()
+                    for _rr in range(current_row, current_row + src_last_row):
+                        for _cc in range(1, src_last_col + 1):
+                            _v = str(tgt_ws.Cells(_rr, _cc).Value or '')
+                            if any(_kw in _v for _kw in _sig_kws):
+                                _sig_rows_found.add(_rr)
+                                break
+                    if _sig_rows_found:
+                        try:
+                            for _pi in range(1, tgt_ws.Pictures.Count + 1):
+                                _pic = tgt_ws.Pictures(_pi)
+                                _pic_mid = _pic.Top + _pic.Height / 2
+                                for _sr in list(_sig_rows_found):
+                                    _row_top = tgt_ws.Rows(_sr).Top
+                                    _row_bot = _row_top + tgt_ws.Rows(_sr).Height
+                                    if _row_top <= _pic_mid <= _row_bot:
+                                        _new_h = max(tgt_ws.Rows(_sr).Height or 0, _pic.Height + 4)
+                                        if _new_h > (tgt_ws.Rows(_sr).Height or 0):
+                                            tgt_ws.Rows(_sr).RowHeight = _new_h
+                                        _sig_rows_found.discard(_sr)
+                        except Exception:
+                            pass
+
+                    # Right-align "制表人" cells; widen cols with signature prompts
                     for _rr in range(current_row, current_row + src_last_row):
                         for _cc in range(1, src_last_col + 1):
                             _cell = tgt_ws.Cells(_rr, _cc)
