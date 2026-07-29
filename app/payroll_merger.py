@@ -958,7 +958,8 @@ def merge_payrolls_simple(
 
             # Format virtual table
             tgt_ws.Columns(1).ColumnWidth = 5
-            tgt_ws.Columns(2).ColumnWidth = 22
+            max_unit_len = max((len(info.get("unit_name", "")) for info in items), default=0)
+            tgt_ws.Columns(2).ColumnWidth = max(12, max_unit_len)
             for vi in range(3, virtual_cols + 1):
                 tgt_ws.Columns(vi).ColumnWidth = 12
             brd = tgt_ws.Range(
