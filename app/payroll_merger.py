@@ -994,14 +994,24 @@ def merge_payrolls_simple(
                     tgt_ws.Paste(tgt_cell)
                     app.CutCopyMode = False
 
-                    # Right-align "制表人" cells
+                    # Right-align "制表人" cells; widen cols with signature prompts
+                    _sig_kws = ["总经理签字", "分管领导审核", "财务审核", "业务审核"]
                     for _rr in range(current_row, current_row + src_last_row):
                         for _cc in range(1, src_last_col + 1):
                             _cell = tgt_ws.Cells(_rr, _cc)
                             _v = _cell.Value
-                            if _v is not None and isinstance(_v, str) and "制表人" in str(_v):
+                            if _v is None or not isinstance(_v, str):
+                                continue
+                            vs = str(_v)
+                            if "制表人" in vs:
                                 _cell.HorizontalAlignment = -4152
                                 break
+                            for _kw in _sig_kws:
+                                if _kw in vs:
+                                    _cw = _cell.EntireColumn.ColumnWidth
+                                    if _cw < 20:
+                                        _cell.EntireColumn.ColumnWidth = 20
+                                    break
 
                     src_wb.Close(SaveChanges=False)
                     current_row += src_last_row + 3  # 3 blank rows between tables
