@@ -1332,8 +1332,8 @@ def _auto_column_width(ws, cfg=None, formula_values: Optional[dict] = None,
             ws.column_dimensions[col_letter].width = desired
             col_widths[col] = desired
 
-    # --- 2. 动态计算统一字号 ---
-    data_font_size = _calc_data_font_size(ws, col_widths, formula_values)
+    # --- 2. 统一字号（固定为宋体 9pt，与原始数据一致）---
+    data_font_size = 9
 
     # --- 3. 统一数据区字号（row 4 起全表覆盖，跳过签名行）---
     for row in range(4, ws.max_row + 1):
