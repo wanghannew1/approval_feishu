@@ -623,6 +623,18 @@ def merge_payrolls_simple(
                 file_totals.append(row_vals)
                 file_fingerprints.append(fp_dict)
 
+            # ── Compute first data column from 合计 row ──
+            data_start_col = max_cols + 1
+            for row_vals in file_totals:
+                if not row_vals:
+                    continue
+                for c in range(2, max_cols + 1):
+                    if c in row_vals and row_vals[c] is not None:
+                        data_start_col = min(data_start_col, c)
+                        break
+            if data_start_col > max_cols:
+                data_start_col = 5
+
             # ── Build canonical column-fingerprint sequence ──
             variant_counts = []
             for fpf in file_fingerprints:
@@ -637,14 +649,14 @@ def merge_payrolls_simple(
 
             canonical_fps = []
             seen_fp = set()
-            for c in range(7, max_cols + 1):
+            for c in range(data_start_col, max_cols + 1):
                 fp = ref_fp.get(c, ("", "", ""))
                 if fp != ("", "", "") and fp not in seen_fp:
                     canonical_fps.append(fp)
                     seen_fp.add(fp)
             for fpf in file_fingerprints:
                 for c, fp in fpf.items():
-                    if c >= 7 and fp != ("", "", "") and fp not in seen_fp:
+                    if c >= data_start_col and fp != ("", "", "") and fp not in seen_fp:
                         seen_fp.add(fp)
                         insert_idx = len(canonical_fps)
                         same_r3v_last = -1
@@ -657,7 +669,7 @@ def merge_payrolls_simple(
                         if insert_idx == len(canonical_fps) and same_r3v_last >= 0:
                             insert_idx = same_r3v_last + 1
                         if insert_idx == len(canonical_fps):
-                            for lc in range(c - 1, 6, -1):
+                            for lc in range(c - 1, data_start_col - 1, -1):
                                 lfp = fpf.get(lc)
                                 if lfp and lfp in canonical_fps:
                                     insert_idx = canonical_fps.index(lfp) + 1
@@ -686,17 +698,21 @@ def merge_payrolls_simple(
                 has_data = False
                 for ft, cm in zip(file_totals, file_col_maps):
                     src_c = cm.get(vi)
-                    if src_c is not None and src_c in ft:
-                        v = ft[src_c]
-                        if v is not None:
-                            try:
-                                if float(v) != 0:
-                                    has_data = True
-                                    break
-                            except (ValueError, TypeError):
-                                if str(v).strip():
-                                    has_data = True
-                                    break
+                    if src_c is None:
+                        continue
+                    if src_c not in ft or ft[src_c] is None:
+                        # Column exists but has no total row value — still include it
+                        has_data = True
+                        break
+                    v = ft[src_c]
+                    try:
+                        if float(v) != 0:
+                            has_data = True
+                            break
+                    except (ValueError, TypeError):
+                        if str(v).strip():
+                            has_data = True
+                            break
                 if has_data:
                     active_fps.append(fp)
             if not active_fps:
@@ -741,7 +757,7 @@ def merge_payrolls_simple(
                 pass
 
             display_hdr = {}
-            for c in range(7, max_cols + 1):
+            for c in range(data_start_col, max_cols + 1):
                 fp = ref_fp.get(c)
                 if fp and fp != ("", "", ""):
                     display_hdr[fp] = (
