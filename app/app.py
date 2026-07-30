@@ -728,12 +728,18 @@ def _handle_download_and_sign():
     cashier_tasks = []
     for i, code in enumerate(selected):
         try:
+            _merge_cfg = _load_settings().get("merge_layout_config", {})
+            _id_w = (
+                _merge_cfg.get("pasted_sheet", {}).get("id_card_min_width")
+                or _merge_cfg.get("id_card_min_width")
+            )
             result = process_single_approval(
                 code,
                 token,
                 {
                     "save_dir": save_dir,
                     "signatures_dir": "./signatures",
+                    "id_card_min_width": _id_w,
                 },
             )
             if result["success"]:

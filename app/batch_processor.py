@@ -1280,7 +1280,8 @@ def _is_sig_keyword_row(ws, row: int, sig_keywords: list) -> bool:
 
 
 def _auto_column_width(ws, cfg=None, formula_values: Optional[dict] = None,
-                       min_width: float = 6, max_width: float = 20):
+                       min_width: float = 6, max_width: float = 20,
+                       id_card_min_width: int = 28):
     """
     自适应列宽 + 统一数据区字号，避免打印时 ### 溢出或列过宽导致缩放字太小。
 
@@ -1400,7 +1401,7 @@ def _auto_column_width(ws, cfg=None, formula_values: Optional[dict] = None,
             is_id_card = col == id_card_col
             if is_id_card:
                 # 身份证号一行显示 18 位数字：加宽 + 强制不换行
-                min_w = max(needed + 0.5, 28)
+                min_w = max(needed + 0.5, id_card_min_width)
                 if cur_w < min_w:
                     ws.column_dimensions[col_letter].width = min_w
                 for row in range(4, ws.max_row + 1):
@@ -1452,7 +1453,8 @@ def _prevent_signature_page_split(ws, positions: Dict[str, Tuple[int, int]]):
     logger.info(f"[PAGE] 签名行高度调整为45pt ({len(sig_rows)}个签名行)")
 
 
-def adjust_excel_for_print(ws, cfg=None, formula_values: Optional[dict] = None) -> None:
+def adjust_excel_for_print(ws, cfg=None, formula_values: Optional[dict] = None,
+                           id_card_min_width: Optional[int] = None) -> None:
     """
     调整 Excel 打印设置：横向打印，A4 纸，左边距 2cm，其他边距 1cm，
     所有列缩放到 1 页宽，水平居中。
@@ -1460,6 +1462,8 @@ def adjust_excel_for_print(ws, cfg=None, formula_values: Optional[dict] = None) 
     """
     if cfg is None:
         cfg = get_payroll_config()
+    if id_card_min_width is None:
+        id_card_min_width = cfg.get("layout", {}).get("id_card_min_width", 28)
     try:
         ws.page_setup.paperSize = 9          # A4
         ws.page_setup.orientation = "landscape"
@@ -1476,7 +1480,7 @@ def adjust_excel_for_print(ws, cfg=None, formula_values: Optional[dict] = None) 
         logger.info("[PRINT] 已调整: 横向A4, 左2cm其余1cm, 1页宽, fitToPage=True, 网格线关闭")
 
         _hide_columns(ws)
-        _auto_column_width(ws, cfg, formula_values)
+        _auto_column_width(ws, cfg, formula_values, id_card_min_width=id_card_min_width)
     except Exception as e:
         logger.warning(f"[PRINT] 调整打印设置时出错: {e}")
 
@@ -1727,6 +1731,7 @@ def _insert_signature_to_excel_openpyxl(
     approvers: List[Dict],
     signatures_dir: Path,
     output_path: Path,
+    id_card_min_width: Optional[int] = None,
 ) -> Tuple[bool, List[str], Path]:
     inserted_roles = []
     try:
@@ -1774,7 +1779,7 @@ def _insert_signature_to_excel_openpyxl(
             _remove_empty_columns(payroll_ws, cfg)
         _restore_total_row_borders(payroll_ws)
         positions = find_all_signature_positions(payroll_ws, cfg)
-        adjust_excel_for_print(payroll_ws, cfg)
+        adjust_excel_for_print(payroll_ws, cfg, id_card_min_width=id_card_min_width)
         logger.info(f"[SIGN] Found positions: {positions}")
         if not positions:
             logger.warning(f"[SIGN] No signature positions found in {excel_path.name}")
@@ -2031,7 +2036,8 @@ def process_single_approval(
                         signed_name = f"signed_{sign_path.stem}.xlsx"
                         signed_path = instance_dir / signed_name
                         success, inserted, actual_signed_path = _insert_signature_to_excel_openpyxl(
-                            sign_path, approvers, signatures_dir, signed_path
+                            sign_path, approvers, signatures_dir, signed_path,
+                            id_card_min_width=config.get("id_card_min_width"),
                         )
                         if success:
                             logger.info(f"[BATCH] Signature insertion success: {inserted}")
