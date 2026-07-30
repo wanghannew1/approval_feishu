@@ -8,6 +8,7 @@ import streamlit as st
 import json
 
 from app.payroll_merger import (
+    DEFAULT_MERGE_CONFIG,
     batch_print,
     check_wps_available,
     get_last_wps_error,
@@ -17,6 +18,8 @@ from app.payroll_merger import (
 
 # ── settings persistence ─────────────────────────────────────────────────────
 _SETTINGS_FILE = _PROJECT_ROOT / "settings.json"
+
+_MERGE_CFG_KEY = "merge_layout_config"
 
 def _load_merge_settings() -> dict:
     try:
@@ -37,6 +40,24 @@ def _save_merge_settings(payroll_dir: str, output_dir: str) -> None:
         data = {}
     data["merge_payroll_dir"] = payroll_dir
     data["merge_output_dir"] = output_dir
+    with open(_SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def _load_merge_layout_config() -> dict:
+    try:
+        with open(_SETTINGS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get(_MERGE_CFG_KEY, {})
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def _save_merge_layout_config(overrides: dict) -> None:
+    try:
+        with open(_SETTINGS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        data = {}
+    data[_MERGE_CFG_KEY] = overrides
     with open(_SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -69,6 +90,81 @@ with st.sidebar:
             st.session_state.merge_output_dir.strip(),
         )
         st.success("路径已保存，下次启动自动加载", icon="✅")
+
+    # ── Merge layout config ──
+    with st.expander("📐 合并布局设置", expanded=False):
+        _ml = _load_merge_layout_config()
+        ml_changed = False
+        
+        _sig_h = st.number_input("签字行行高 (pt)", min_value=20, max_value=200, 
+                                  value=_ml.get("pasted_sheet", {}).get("sig_row_height", 
+                                        DEFAULT_MERGE_CONFIG["pasted_sheet"]["sig_row_height"]),
+                                  key="ml_sig_h", help="合并后工资表签字行的行高")
+        if _sig_h != _ml.get("pasted_sheet", {}).get("sig_row_height",
+                          DEFAULT_MERGE_CONFIG["pasted_sheet"]["sig_row_height"]):
+            ml_changed = True
+        
+        _id_w = st.number_input("身份证列宽", min_value=10, max_value=100,
+                                 value=_ml.get("pasted_sheet", {}).get("id_card_min_width",
+                                       DEFAULT_MERGE_CONFIG["pasted_sheet"]["id_card_min_width"]),
+                                 key="ml_id_w", help="身份证号列最小列宽")
+        if _id_w != _ml.get("pasted_sheet", {}).get("id_card_min_width",
+                         DEFAULT_MERGE_CONFIG["pasted_sheet"]["id_card_min_width"]):
+            ml_changed = True
+        
+        _sig_col = st.number_input("签字列最小列宽", min_value=5, max_value=100,
+                                    value=_ml.get("pasted_sheet", {}).get("sig_col_min_width",
+                                          DEFAULT_MERGE_CONFIG["pasted_sheet"]["sig_col_min_width"]),
+                                    key="ml_sig_col", help="如总经理签字等列的列宽")
+        if _sig_col != _ml.get("pasted_sheet", {}).get("sig_col_min_width",
+                            DEFAULT_MERGE_CONFIG["pasted_sheet"]["sig_col_min_width"]):
+            ml_changed = True
+        
+        _f_size = st.number_input("数据区字号 (pt)", min_value=6, max_value=20,
+                                   value=_ml.get("font_size",
+                                         DEFAULT_MERGE_CONFIG["font_size"]),
+                                   key="ml_f_size", help="数据单元格字号")
+        if _f_size != _ml.get("font_size", DEFAULT_MERGE_CONFIG["font_size"]):
+            ml_changed = True
+        
+        _f_name = st.text_input("数据区字体",
+                                 value=_ml.get("font_name",
+                                       DEFAULT_MERGE_CONFIG["font_name"]),
+                                 key="ml_f_name", help="数据单元格字体名称")
+        if _f_name != _ml.get("font_name", DEFAULT_MERGE_CONFIG["font_name"]):
+            ml_changed = True
+        
+        _lm = st.number_input("左边距 (cm)", min_value=0.0, max_value=5.0, step=0.1,
+                               value=_ml.get("page", {}).get("left_margin_cm",
+                                     DEFAULT_MERGE_CONFIG["page"]["left_margin_cm"]),
+                               key="ml_lm", help="打印左边距")
+        if _lm != _ml.get("page", {}).get("left_margin_cm",
+                            DEFAULT_MERGE_CONFIG["page"]["left_margin_cm"]):
+            ml_changed = True
+        
+        _rm = st.number_input("右边距 (cm)", min_value=0.0, max_value=5.0, step=0.1,
+                               value=_ml.get("page", {}).get("right_margin_cm",
+                                     DEFAULT_MERGE_CONFIG["page"]["right_margin_cm"]),
+                               key="ml_rm", help="打印右边距")
+        if _rm != _ml.get("page", {}).get("right_margin_cm",
+                            DEFAULT_MERGE_CONFIG["page"]["right_margin_cm"]):
+            ml_changed = True
+        
+        if ml_changed and st.button("💾 保存布局设置", key="ml_save", use_container_width=True):
+            _save_merge_layout_config({
+                "font_name": _f_name,
+                "font_size": _f_size,
+                "pasted_sheet": {
+                    "sig_row_height": _sig_h,
+                    "id_card_min_width": _id_w,
+                    "sig_col_min_width": _sig_col,
+                },
+                "page": {
+                    "left_margin_cm": _lm,
+                    "right_margin_cm": _rm,
+                },
+            })
+            st.success("布局设置已保存", icon="✅")
 
     st.divider()
 
@@ -162,6 +258,7 @@ if merge_clicked:
                     str(payroll_path),
                     str(output_path),
                     progress_callback=_progress_callback,
+                    merge_config=_load_merge_layout_config() or None,
                 )
 
                 status_text.update(label="合并完成", state="complete")

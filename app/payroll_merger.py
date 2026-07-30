@@ -17,6 +17,28 @@ import openpyxl
 
 logger = logging.getLogger(__name__)
 
+# ── Default merge config ──
+DEFAULT_MERGE_CONFIG: dict = {
+    "font_name": "宋体",
+    "font_size": 9,
+    "virtual_table": {
+        "col1_width": 5,
+        "col2_min_width": 12,
+        "dcol_min_width": 12,
+        "title_font_size": 16,
+    },
+    "pasted_sheet": {
+        "id_card_min_width": 28,
+        "sig_col_min_width": 20,
+        "sig_row_height": 50,
+    },
+    "page": {
+        "left_margin_cm": 1.5,
+        "right_margin_cm": 0.5,
+        "fit_pages_tall": 9999,
+    },
+}
+
 # ── Helpers for column auto-sizing ──
 def _is_numeric_com(v) -> bool:
     """Check if a COM cell value represents a number (int/float or numeric string)."""
@@ -471,8 +493,7 @@ def merge_payrolls_simple(
     payroll_dir: str,
     output_dir: str,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
-    left_margin_cm: float = 1.5,
-    right_margin_cm: float = 0.5,
+    merge_config: Optional[dict] = None,
 ) -> Tuple[List[str], List[str], dict]:
     """
     Merge payroll worksheets by big organisation.
@@ -494,8 +515,7 @@ def merge_payrolls_simple(
         payroll_dir:       Directory to scan for ``signed_*.xlsx`` files.
         output_dir:        Directory for the generated merged files.
         progress_callback: Optional ``(current, total, message)`` callback.
-        left_margin_cm:    Left page margin in centimetres (default 1.5).
-        right_margin_cm:   Right page margin in centimetres (default 0.5).
+        merge_config:      Dict overriding DEFAULT_MERGE_CONFIG values.
 
     Returns:
         ``(output_files, warnings, stats)``:
@@ -506,6 +526,19 @@ def merge_payrolls_simple(
     import win32com.client  # noqa: F811
     import pythoncom
     pythoncom.CoInitialize()
+
+    # Merge user config with defaults
+    cfg = dict(DEFAULT_MERGE_CONFIG)
+    if merge_config:
+        for k, v in merge_config.items():
+            if isinstance(v, dict) and isinstance(cfg.get(k), dict):
+                cfg[k].update(v)
+            else:
+                cfg[k] = v
+
+    vt = cfg["virtual_table"]
+    ps = cfg["pasted_sheet"]
+    pg = cfg["page"]
 
     warnings_list: List[str] = []
 
@@ -807,10 +840,10 @@ def merge_payrolls_simple(
             ).Font.Bold = True
             tgt_ws.Range(
                 tgt_ws.Cells(r, 1), tgt_ws.Cells(r, virtual_cols)
-            ).Font.Size = 16
+            ).Font.Size = vt.get("title_font_size", 16)
             tgt_ws.Range(
                 tgt_ws.Cells(r, 1), tgt_ws.Cells(r, virtual_cols)
-            ).Font.Name = "宋体"
+            ).Font.Name = cfg["font_name"]
             tgt_ws.Range(
                 tgt_ws.Cells(r, 1), tgt_ws.Cells(r, virtual_cols)
             ).HorizontalAlignment = -4108
@@ -988,15 +1021,17 @@ def merge_payrolls_simple(
             virtual_end_row = r
 
             # Format virtual table
-            tgt_ws.Columns(1).ColumnWidth = 5
+            tgt_ws.Columns(1).ColumnWidth = vt.get("col1_width", 5)
             max_unit_len = max((len(info.get("unit_name", "")) for info in items), default=0)
-            tgt_ws.Columns(2).ColumnWidth = max(12, max_unit_len)
+            _c2_min = vt.get("col2_min_width", 12)
+            tgt_ws.Columns(2).ColumnWidth = max(_c2_min, max_unit_len)
+            _dc_min = vt.get("dcol_min_width", 12)
             for vi in range(3, virtual_cols + 1):
                 _max_w = 0.0
                 _v = tgt_ws.Cells(virtual_end_row, vi).Value
                 if _v is not None and _is_numeric_com(_v):
                     _max_w = _com_estimate_width(_v)
-                tgt_ws.Columns(vi).ColumnWidth = max(12, round(_max_w + 2))
+                tgt_ws.Columns(vi).ColumnWidth = max(_dc_min, round(_max_w + 2))
             brd = tgt_ws.Range(
                 tgt_ws.Cells(data_start_row - 3, 1),
                 tgt_ws.Cells(virtual_end_row, virtual_cols),
@@ -1011,11 +1046,11 @@ def merge_payrolls_simple(
             tgt_ws.Range(
                 tgt_ws.Cells(data_start_row - 3, 1),
                 tgt_ws.Cells(virtual_end_row, virtual_cols),
-            ).Font.Name = "宋体"
+            ).Font.Name = cfg["font_name"]
             tgt_ws.Range(
                 tgt_ws.Cells(data_start_row - 3, 1),
                 tgt_ws.Cells(virtual_end_row, virtual_cols),
-            ).Font.Size = 9
+            ).Font.Size = cfg["font_size"]
             r += 2
 
             # ── Paste original worksheets (cross-workbook copy) ──
@@ -1043,8 +1078,8 @@ def merge_payrolls_simple(
                         tgt_ws.Cells(current_row, 1),
                         tgt_ws.Cells(current_row + src_last_row - 1, src_last_col),
                     )
-                    _paste_range.Font.Name = "宋体"
-                    _paste_range.Font.Size = 9
+                    _paste_range.Font.Name = cfg["font_name"]
+                    _paste_range.Font.Size = cfg["font_size"]
 
                     # Find the 合计 row and use only its numeric values for column width
                     _total_row = None
@@ -1062,7 +1097,7 @@ def merge_payrolls_simple(
                                 if _desired > _cur_w:
                                     tgt_ws.Columns(_pc).ColumnWidth = _desired
 
-                    # ID card column: force width >= 28, no wrap so 18 digits stay on one line
+                    # ID card column: force min width, no wrap so 18 digits stay on one line
                     _id_col = None
                     _hdr_row = current_row + 2
                     for _pc in range(1, src_last_col + 1):
@@ -1071,17 +1106,19 @@ def merge_payrolls_simple(
                             _id_col = _pc
                             break
                     if _id_col is not None:
-                        if (tgt_ws.Columns(_id_col).ColumnWidth or 0) < 28:
-                            tgt_ws.Columns(_id_col).ColumnWidth = 28
+                        _id_min = ps.get("id_card_min_width", 28)
+                        if (tgt_ws.Columns(_id_col).ColumnWidth or 0) < _id_min:
+                            tgt_ws.Columns(_id_col).ColumnWidth = _id_min
                         tgt_ws.Columns(_id_col).WrapText = False
 
                     # Signature row height: 45pt matches 60px signature images in source files
                     _sig_kws = ["总经理签字", "分管领导审核", "财务审核", "业务审核"]
+                    _sig_h = ps.get("sig_row_height", 50)
                     for _rr in range(current_row, current_row + src_last_row):
                         for _cc in range(1, src_last_col + 1):
                             _v = str(tgt_ws.Cells(_rr, _cc).Value or '')
                             if any(_kw in _v for _kw in _sig_kws):
-                                tgt_ws.Rows(_rr).RowHeight = 50
+                                tgt_ws.Rows(_rr).RowHeight = _sig_h
                                 break
 
                     # Right-align "制表人" cells; widen cols with signature prompts
@@ -1098,8 +1135,9 @@ def merge_payrolls_simple(
                             for _kw in _sig_kws:
                                 if _kw in vs:
                                     _cw = _cell.EntireColumn.ColumnWidth
-                                    if _cw < 20:
-                                        _cell.EntireColumn.ColumnWidth = 20
+                                    _sig_min = ps.get("sig_col_min_width", 20)
+                                    if _cw < _sig_min:
+                                        _cell.EntireColumn.ColumnWidth = _sig_min
                                     break
 
                     src_wb.Close(SaveChanges=False)
@@ -1114,9 +1152,11 @@ def merge_payrolls_simple(
             tgt_ws.PageSetup.PaperSize = 9
             tgt_ws.PageSetup.Zoom = False
             tgt_ws.PageSetup.FitToPagesWide = 1
-            tgt_ws.PageSetup.FitToPagesTall = 9999
-            LEFT_MARGIN_PT = round(left_margin_cm * 28.35, 2)
-            RIGHT_MARGIN_PT = round(right_margin_cm * 28.35, 2)
+            tgt_ws.PageSetup.FitToPagesTall = pg.get("fit_pages_tall", 9999)
+            _lm = pg.get("left_margin_cm", 1.5)
+            _rm = pg.get("right_margin_cm", 0.5)
+            LEFT_MARGIN_PT = round(_lm * 28.35, 2)
+            RIGHT_MARGIN_PT = round(_rm * 28.35, 2)
             tgt_ws.PageSetup.LeftMargin = LEFT_MARGIN_PT
             tgt_ws.PageSetup.RightMargin = RIGHT_MARGIN_PT
             tgt_ws.PageSetup.PrintTitleRows = ""
