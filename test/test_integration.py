@@ -157,7 +157,7 @@ class TestFullWorkflow:
         assert "财务审核" in roles
 
     def test_full_workflow_approval_passed(
-        self, requests_mock, mock_token, tmp_path
+        self, requests_mock, mock_token, tmp_path, temp_cache_file
     ):
         """
         Full workflow with APPROVED status, verify is_approval_passed returns True.
@@ -222,7 +222,7 @@ class TestFullWorkflow:
         assert detail["status"] == "APPROVED"
 
     def test_full_workflow_with_cache(
-        self, requests_mock, mock_token, tmp_path
+        self, requests_mock, mock_token, tmp_path, temp_cache_file
     ):
         """
         First call hits API, second call uses cache. Verify cache stats.
