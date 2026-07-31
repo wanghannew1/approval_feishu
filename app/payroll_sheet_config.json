@@ -50,6 +50,6 @@
 
     "layout": {
         "description": "打印布局设置",
-        "id_card_min_width": 26
+        "id_card_min_width": 20
     }
 }

@@ -28,7 +28,7 @@ DEFAULT_MERGE_CONFIG: dict = {
         "title_font_size": 16,
     },
     "pasted_sheet": {
-        "id_card_min_width": 28,
+        "id_card_min_width": 20,
         "sig_col_min_width": 20,
         "sig_row_height": 50,
     },
@@ -1106,7 +1106,7 @@ def merge_payrolls_simple(
                             _id_col = _pc
                             break
                     if _id_col is not None:
-                        _id_min = ps.get("id_card_min_width", 28)
+                        _id_min = ps.get("id_card_min_width", 20)
                         if (tgt_ws.Columns(_id_col).ColumnWidth or 0) < _id_min:
                             tgt_ws.Columns(_id_col).ColumnWidth = _id_min
                         tgt_ws.Columns(_id_col).WrapText = False

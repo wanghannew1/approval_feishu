@@ -1286,7 +1286,7 @@ def _is_sig_keyword_row(ws, row: int, sig_keywords: list) -> bool:
 
 def _auto_column_width(ws, cfg=None, formula_values: Optional[dict] = None,
                        min_width: float = 6, max_width: float = 20,
-                       id_card_min_width: int = 26):
+                       id_card_min_width: int = 20):
     """
     自适应列宽 + 统一数据区字号，避免打印时 ### 溢出或列过宽导致缩放字太小。
 
@@ -1474,7 +1474,7 @@ def adjust_excel_for_print(ws, cfg=None, formula_values: Optional[dict] = None,
     if cfg is None:
         cfg = get_payroll_config()
     if id_card_min_width is None:
-        id_card_min_width = cfg.get("layout", {}).get("id_card_min_width", 26)
+        id_card_min_width = cfg.get("layout", {}).get("id_card_min_width", 20)
     try:
         ws.page_setup.paperSize = 9          # A4
         ws.page_setup.orientation = "landscape"
