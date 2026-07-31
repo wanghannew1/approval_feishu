@@ -2015,6 +2015,11 @@ def process_single_approval(
     form_widgets = parse_form(detail)
     attachments = extract_attachments(form_widgets)
     if not attachments:
+        logger.info(
+            f"[BATCH] 无附件 (instance={instance_code}); "
+            f"form_widgets types={ {w.get('type') for w in form_widgets} }"
+        )
+        result["skipped"] = True
         result["message"] = "无附件"
         return result
 
