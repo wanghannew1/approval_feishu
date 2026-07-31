@@ -1761,6 +1761,16 @@ def _estimate_text_render_width(text: str, font_size_pt: float) -> int:
     return int(px * 914400 / 96)  # px → EMU at 96 DPI
 
 
+def _excel_col_width_to_emu(width_chars: Optional[float]) -> int:
+    """Convert an Excel column width (in "0"-character units) to EMU.
+
+    Excel column width unit ≈ 7 px at 96 DPI for the default font; missing
+    width defaults to 8.43 chars (= ~64 px, the standard default column).
+    """
+    chars = width_chars if width_chars and width_chars > 0 else 8.43
+    return int(chars * 7 * 914400 / 96)
+
+
 def _insert_signature_to_excel_openpyxl(
     excel_path: Path,
     approvers: List[Dict],
@@ -1864,18 +1874,34 @@ def _insert_signature_to_excel_openpyxl(
             text_cell = payroll_ws.cell(row=row, column=col)
             text_cell.font = Font(size=10)
 
-            # 根据提示词文本宽度计算图片偏移量，使签名紧跟在文字后方
-            # 留两个字余量（约 20px），避免签名与提示词重叠
+            # 根据提示词文本宽度计算图片偏移量，使签名紧跟在文字后方。
+            # 关键: 当提示词渲染宽度超过所在单元格列宽时, 文字会溢出到右侧
+            # 单元格显示 —— 此时必须把图片锚点移到下一列、并把溢出部分
+            # 作为下一列内的 colOff, 否则图片会与溢出文字重叠。
             text_val = str(text_cell.value) if text_cell.value else ""
-            off_emu = _estimate_text_render_width(text_val, 10) + int(20 * 914400 / 96)
+            pad_emu = int(20 * 914400 / 96)  # 20px 余量, 避免紧贴文字
+            text_emu = _estimate_text_render_width(text_val, 10)
+
+            col_w_chars = payroll_ws.column_dimensions[get_column_letter(col)].width
+            col_w_emu = _excel_col_width_to_emu(col_w_chars)
+
+            if text_emu + pad_emu <= col_w_emu:
+                # 文字未溢出列: 图片锚在提示词列, colOff = 文字宽+余量
+                anchor_col = col - 1  # 0-based
+                anchor_col_off = text_emu + pad_emu
+            else:
+                # 文字溢出到右侧单元格: 图片锚在右侧单元格,
+                # colOff = (文字宽 - 列宽) + 余量, 即紧跟溢出文字末尾
+                anchor_col = col  # 0-based, 即下一列
+                anchor_col_off = max(0, text_emu - col_w_emu) + pad_emu
 
             img = XLImage(str(sig_path))
             img.width = 120
             img.height = 60
             anchor = OneCellAnchor(
                 _from=AnchorMarker(
-                    col=col - 1, row=row - 1,
-                    colOff=off_emu, rowOff=0,
+                    col=anchor_col, row=row - 1,
+                    colOff=anchor_col_off, rowOff=0,
                 ),
                 ext=XDRPositiveSize2D(
                     pixels_to_EMU(img.width),
@@ -1884,7 +1910,11 @@ def _insert_signature_to_excel_openpyxl(
             )
             payroll_ws.add_image(img, anchor)
             inserted_roles.append(role)
-            logger.info(f"[SIGN] Inserted signature for {role} ({text_val}) offset={off_emu}")
+            logger.info(
+                f"[SIGN] Inserted signature for {role} ({text_val}) "
+                f"text_emu={text_emu} col_w_emu={col_w_emu} "
+                f"anchor=(col={anchor_col}, colOff={anchor_col_off})"
+            )
 
         sig_rows = {r for r, _ in positions.values()}
         for r in sig_rows:
