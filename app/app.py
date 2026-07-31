@@ -272,11 +272,11 @@ def render_sidebar():
             settings = _load_settings()
             download_path = st.text_input(
                 "下载路径",
-                value=settings.get("download_path", "./downloads"),
+                value=settings.get("download_path", r"C:\Users\BY\Desktop\当天工资"),
                 key="settings_download_path",
             )
             if st.button("保存设置", key="save_settings", width="stretch"):
-                settings["download_path"] = download_path.strip() or "./downloads"
+                settings["download_path"] = download_path.strip() or r"C:\Users\BY\Desktop\当天工资"
                 _save_settings(settings)
                 st.success("已保存")
 
@@ -715,7 +715,16 @@ def _handle_download_and_sign():
         return
 
     settings = _load_settings()
-    save_dir = settings.get("download_path", "./downloads")
+    save_dir = settings.get("download_path", r"C:\Users\BY\Desktop\当天工资")
+
+    # 下载路径校验：若目录不存在则在界面提示用户
+    save_dir_path = Path(save_dir)
+    if not save_dir_path.exists():
+        st.error(
+            f"下载路径不存在：{save_dir}\n"
+            f"请在「⚙️ 设置」中修改下载路径后再下载。"
+        )
+        return
 
     selected = st.session_state.selected_instances
     total = len(selected)
