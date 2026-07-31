@@ -4,6 +4,19 @@
 # 环境变量（含敏感信息）
 .env
 
+# 应用本地设置（每台机器路径不同，不进版本库）
+app/settings.json
+
+# 所有用户可编辑的 JSON 配置不在版本库中
+# —— 默认值见 app/config_store.py，首次启动会自动写盘
+app/approval_definitions.json
+app/user_mapping.json
+app/payroll_sheet_config.json
+app/role_mapping.json
+app/workflow_order.json
+app/template/summary_config.json
+app/template/validation_config.json
+
 # 下载文件
 downloads/
 

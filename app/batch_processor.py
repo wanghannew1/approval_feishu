@@ -27,6 +27,7 @@ from openpyxl.styles import Alignment, Border, Font, Side
 from openpyxl.utils import get_column_letter
 
 from app.feishu_api import download_file, extract_attachments, get_instance_detail, parse_form
+from app import config_store
 
 logger = logging.getLogger(__name__)
 
@@ -166,24 +167,21 @@ def print_file(file_path: Path, printer_name: Optional[str] = None) -> Tuple[boo
         return _print_with_libreoffice(file_path, printer_name)
 
 
-_PAYROLL_CONFIG_PATH = Path(__file__).parent / "payroll_sheet_config.json"
-_ROLE_MAPPING_PATH = Path(__file__).parent / "role_mapping.json"
-
-
-def _load_json(path: Path) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+_PAYROLL_CONFIG_PATH = config_store.PATH_PAYROLL_CONFIG
+_ROLE_MAPPING_PATH = config_store.PATH_ROLE_MAPPING
 
 
 def _get_mandatory_roles() -> set:
-    config = _load_json(_PAYROLL_CONFIG_PATH)
+    config = config_store.load_or_create(
+        _PAYROLL_CONFIG_PATH, config_store.DEFAULT_PAYROLL_CONFIG
+    )
     mandatory = config.get("sheet_filter", {}).get("signatures", {}).get("mandatory", {})
     return {k for k in mandatory.keys() if k != "description"}
 
 
 def _get_role_mapping(path: Optional[Path] = None) -> Dict[str, str]:
     mapping_path = path or _ROLE_MAPPING_PATH
-    data = _load_json(mapping_path)
+    data = config_store.load_or_create(mapping_path, config_store.DEFAULT_ROLE_MAPPING)
     return {k: v for k, v in data.items() if not k.startswith("_")}
 
 
@@ -286,32 +284,13 @@ def reload_payroll_config():
 
 
 def get_payroll_config() -> dict:
-    """Load payroll sheet detection rules from config file."""
+    """Load payroll sheet detection rules from config file (cached)."""
     global _PAYROLL_CONFIG
     if _PAYROLL_CONFIG is None:
-        if _PAYROLL_CONFIG_PATH.exists():
-            try:
-                with open(_PAYROLL_CONFIG_PATH, "r", encoding="utf-8") as f:
-                    _PAYROLL_CONFIG = json.load(f)
-            except (json.JSONDecodeError, OSError) as e:
-                logger.warning(f"加载工资表配置失败: {e}，使用内置默认值")
-        if _PAYROLL_CONFIG is None:
-            _PAYROLL_CONFIG = {
-                "sheet_filter": {
-                    "row1_title": {"required_keyword": "工资发放表"},
-                    "row2_org": {"required_keyword": "单位名称"},
-                    "row3_headers": {"required": ["转账合计", "应发工资", "实发工资", "实发合计"]},
-                    "signatures": {
-                        "mandatory": {
-                            "总经理签字": ["总经理签字"],
-                        },
-                        "optional": {
-                            "分管领导审核": ["分管领导审核"],
-                            "财务审核": ["财务审核"],
-                        },
-                    },
-                }
-            }
+        _PAYROLL_CONFIG = config_store.load_or_create(
+            _PAYROLL_CONFIG_PATH, config_store.DEFAULT_PAYROLL_CONFIG
+        )
+        # 兼容旧版/手改的用户配置: 缺失 text_normalization 时补回默认规则。
         if "text_normalization" not in _PAYROLL_CONFIG:
             _PAYROLL_CONFIG["text_normalization"] = {
                 "rules": [

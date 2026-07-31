@@ -5,8 +5,8 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
 import streamlit as st
-import json
 
+from app import config_store
 from app.payroll_merger import (
     DEFAULT_MERGE_CONFIG,
     batch_print,
@@ -17,49 +17,31 @@ from app.payroll_merger import (
 )
 
 # ── settings persistence ─────────────────────────────────────────────────────
-_SETTINGS_FILE = _PROJECT_ROOT / "settings.json"
+_SETTINGS_FILE = config_store.PATH_SETTINGS
 
 _MERGE_CFG_KEY = "merge_layout_config"
 
 def _load_merge_settings() -> dict:
-    try:
-        with open(_SETTINGS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return {
-            "payroll_dir": data.get("merge_payroll_dir", ""),
-            "output_dir": data.get("merge_output_dir", ""),
-        }
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {"payroll_dir": "", "output_dir": ""}
+    data = config_store.load_or_create(_SETTINGS_FILE, config_store.DEFAULT_SETTINGS)
+    return {
+        "payroll_dir": data.get("merge_payroll_dir", ""),
+        "output_dir": data.get("merge_output_dir", ""),
+    }
 
 def _save_merge_settings(payroll_dir: str, output_dir: str) -> None:
-    try:
-        with open(_SETTINGS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        data = {}
+    data = config_store.load_or_create(_SETTINGS_FILE, config_store.DEFAULT_SETTINGS)
     data["merge_payroll_dir"] = payroll_dir
     data["merge_output_dir"] = output_dir
-    with open(_SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    config_store.save(_SETTINGS_FILE, data)
 
 def _load_merge_layout_config() -> dict:
-    try:
-        with open(_SETTINGS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get(_MERGE_CFG_KEY, {})
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+    data = config_store.load_or_create(_SETTINGS_FILE, config_store.DEFAULT_SETTINGS)
+    return data.get(_MERGE_CFG_KEY, {})
 
 def _save_merge_layout_config(overrides: dict) -> None:
-    try:
-        with open(_SETTINGS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        data = {}
+    data = config_store.load_or_create(_SETTINGS_FILE, config_store.DEFAULT_SETTINGS)
     data[_MERGE_CFG_KEY] = overrides
-    with open(_SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    config_store.save(_SETTINGS_FILE, data)
 
 # ── page setup ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="工资表合并", page_icon="🗂️", layout="wide")
@@ -180,13 +162,9 @@ with st.sidebar:
 
     st.divider()
     with st.expander("📊 汇总字段设置"):
-        _sc_path = Path(__file__).parent.parent / "template" / "summary_config.json"
-        _sc_default = {"fields": ["个人所得税", "个人工会会费", "工会经费", "实发合计", "实发工资", "扣工会会费"]}
-        try:
-            with open(_sc_path, "r", encoding="utf-8") as _f:
-                _sc_cfg = json.load(_f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            _sc_cfg = dict(_sc_default)
+        _sc_path = config_store.PATH_SUMMARY_CONFIG
+        _sc_default = config_store.DEFAULT_SUMMARY_CONFIG
+        _sc_cfg = config_store.load_or_create(_sc_path, _sc_default)
         _sc_fields = _sc_cfg.get("fields", list(_sc_default["fields"]))
         st.caption("编辑汇总字段（合并工资表的统计列）：")
         _new_fields = []
@@ -197,21 +175,18 @@ with st.sidebar:
             if c2.button("🗑️", key=f"sc_del_{i}"):
                 _new_fields.pop(i)
                 _sc_cfg["fields"] = _new_fields
-                with open(_sc_path, "w", encoding="utf-8") as _f:
-                    json.dump(_sc_cfg, _f, ensure_ascii=False, indent=2)
+                config_store.save(_sc_path, _sc_cfg)
                 st.rerun()
         _new_name = st.text_input("新增字段名", key="sc_new_field", placeholder="输入字段名")
         if st.button("➕ 添加", key="sc_add", use_container_width=True) and _new_name.strip():
             if _new_name.strip() not in _new_fields:
                 _new_fields.append(_new_name.strip())
                 _sc_cfg["fields"] = _new_fields
-                with open(_sc_path, "w", encoding="utf-8") as _f:
-                    json.dump(_sc_cfg, _f, ensure_ascii=False, indent=2)
+                config_store.save(_sc_path, _sc_cfg)
                 st.rerun()
         if st.button("💾 保存配置", key="sc_save", use_container_width=True):
             _sc_cfg["fields"] = [f for f in _new_fields if f.strip()]
-            with open(_sc_path, "w", encoding="utf-8") as _f:
-                json.dump(_sc_cfg, _f, ensure_ascii=False, indent=2)
+            config_store.save(_sc_path, _sc_cfg)
             st.success("已保存")
 
 # ── main area ───────────────────────────────────────────────────────────────

@@ -21,7 +21,7 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 import streamlit as st
 from dotenv import load_dotenv
 
-from app import logger_config  # noqa: F401  # 初始化文件日志
+from app import config_store, logger_config  # noqa: F401  # 初始化文件日志
 app_logger = logging.getLogger("FeishuApproval")
 
 from app.batch_processor import (
@@ -45,67 +45,47 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-DEFINITIONS_FILE = Path(__file__).parent / "approval_definitions.json"
-SETTINGS_FILE = Path(__file__).parent / "settings.json"
-USER_MAPPING_FILE = Path(__file__).parent / "user_mapping.json"
-PAYROLL_CONFIG_FILE = Path(__file__).parent / "payroll_sheet_config.json"
-
-_DEFAULT_DEFINITIONS = {
-    "1CF34ABB-781C-40B0-9A4F-3CC416612423": "项目人员工资发放审批单（系统工资单）",
-}
+DEFINITIONS_FILE = config_store.PATH_DEFINITIONS
+SETTINGS_FILE = config_store.PATH_SETTINGS
+USER_MAPPING_FILE = config_store.PATH_USER_MAPPING
+PAYROLL_CONFIG_FILE = config_store.PATH_PAYROLL_CONFIG
 
 
 def _load_definitions():
-    try:
-        with open(DEFINITIONS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return dict(_DEFAULT_DEFINITIONS)
+    return config_store.load_or_create(DEFINITIONS_FILE, config_store.DEFAULT_DEFINITIONS)
 
 
 def _save_definitions(data):
-    with open(DEFINITIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    config_store.save(DEFINITIONS_FILE, data)
 
 
 def _load_settings():
-    try:
-        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+    return config_store.load_or_create(SETTINGS_FILE, config_store.DEFAULT_SETTINGS)
 
 
 def _save_settings(data):
-    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    config_store.save(SETTINGS_FILE, data)
 
 
 def _load_payroll_config():
-    try:
-        with open(PAYROLL_CONFIG_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {"force_delete_columns": {"columns": []}}
+    return config_store.load_or_create(
+        PAYROLL_CONFIG_FILE, config_store.DEFAULT_PAYROLL_CONFIG
+    )
 
 
 def _save_payroll_config(data):
-    with open(PAYROLL_CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    config_store.save(PAYROLL_CONFIG_FILE, data)
     reload_payroll_config()  # 让 batch_processor 下次读取时重新加载
 
 
 def _load_user_mapping():
-    try:
-        with open(USER_MAPPING_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+    return config_store.load_or_create(
+        USER_MAPPING_FILE, config_store.DEFAULT_USER_MAPPING
+    )
 
 
 def _save_user_mapping(data):
-    with open(USER_MAPPING_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    config_store.save(USER_MAPPING_FILE, data)
 
 
 def _resolve_user_name(user_id, mapping=None):
@@ -865,6 +845,7 @@ def _handle_cashier_approve():
 
 
 def main():
+    config_store.ensure_all()  # 首次启动把所有缺失的 .json 写入默认值
     Path("./signatures").mkdir(exist_ok=True)
     Path("./downloads").mkdir(exist_ok=True)
     Path("./logs").mkdir(exist_ok=True)
