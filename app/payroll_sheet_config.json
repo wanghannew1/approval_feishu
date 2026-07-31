@@ -46,5 +46,10 @@
     "remove_empty_columns": {
         "description": "删除完全无数据的空列（仅含签字提示词的列也会删除，提示词右移保存）",
         "enabled": true
+    },
+
+    "layout": {
+        "description": "打印布局设置",
+        "id_card_min_width": 26
     }
 }

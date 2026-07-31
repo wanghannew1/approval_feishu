@@ -1286,7 +1286,7 @@ def _is_sig_keyword_row(ws, row: int, sig_keywords: list) -> bool:
 
 def _auto_column_width(ws, cfg=None, formula_values: Optional[dict] = None,
                        min_width: float = 6, max_width: float = 20,
-                       id_card_min_width: int = 28):
+                       id_card_min_width: int = 26):
     """
     自适应列宽 + 统一数据区字号，避免打印时 ### 溢出或列过宽导致缩放字太小。
 
@@ -1364,7 +1364,28 @@ def _auto_column_width(ws, cfg=None, formula_values: Optional[dict] = None,
             id_card_col = col
             break
 
-    # --- 5. 字号调整后复查列宽，避免数字 #### 溢出 + 文本换行 ---
+    # --- 5. 身份证列：无条件加宽 + 强制不换行（不受字号复查影响）---
+    if id_card_col is not None:
+        col_letter = get_column_letter(id_card_col)
+        cur_w = ws.column_dimensions[col_letter].width or 0
+        min_w = max(cur_w, id_card_min_width)
+        if cur_w < min_w:
+            ws.column_dimensions[col_letter].width = min_w
+            logger.info(
+                f"[COL] 身份证列 {col_letter} 加宽 "
+                f"{cur_w}→{min_w} (最低 {id_card_min_width})"
+            )
+        for row in range(4, ws.max_row + 1):
+            cell = ws.cell(row=row, column=id_card_col)
+            if cell.value is not None:
+                al = cell.alignment
+                cell.alignment = Alignment(
+                    horizontal=al.horizontal if al else None,
+                    vertical=al.vertical if al else None,
+                    wrap_text=False,
+                )
+
+    # --- 6. 字号调整后复查列宽，避免数字 #### 溢出 + 文本换行 ---
     if data_font_size > 11:
         _SCALE = data_font_size / 11.0
         for col in range(1, ws.max_column + 1):
@@ -1403,22 +1424,7 @@ def _auto_column_width(ws, cfg=None, formula_values: Optional[dict] = None,
                     f"{cur_w}→{round(needed + 0.5)} "
                     f"(字号 {data_font_size}pt)"
                 )
-            is_id_card = col == id_card_col
-            if is_id_card:
-                # 身份证号一行显示 18 位数字：加宽 + 强制不换行
-                min_w = max(needed + 0.5, id_card_min_width)
-                if cur_w < min_w:
-                    ws.column_dimensions[col_letter].width = min_w
-                for row in range(4, ws.max_row + 1):
-                    cell = ws.cell(row=row, column=col)
-                    if cell.value is not None:
-                        al = cell.alignment
-                        cell.alignment = Alignment(
-                            horizontal=al.horizontal if al else None,
-                            vertical=al.vertical if al else None,
-                            wrap_text=False,
-                        )
-            if has_text_overflow and not is_id_card:
+            if has_text_overflow:
                 for row in range(4, ws.max_row + 1):
                     if _is_sig_keyword_row(ws, row, sig_keywords):
                         continue
@@ -1468,7 +1474,7 @@ def adjust_excel_for_print(ws, cfg=None, formula_values: Optional[dict] = None,
     if cfg is None:
         cfg = get_payroll_config()
     if id_card_min_width is None:
-        id_card_min_width = cfg.get("layout", {}).get("id_card_min_width", 28)
+        id_card_min_width = cfg.get("layout", {}).get("id_card_min_width", 26)
     try:
         ws.page_setup.paperSize = 9          # A4
         ws.page_setup.orientation = "landscape"
