@@ -670,11 +670,16 @@ def _remove_empty_columns(ws, cfg, formula_values: Optional[Dict] = None) -> Non
         merge_snapshot = list(ws.merged_cells.ranges)
 
         for row, val in non_empty.items():
-            # Evaluate formulas to static values to avoid broken references
+            # Evaluate formulas to static values to avoid broken references.
+            # A formula WITHOUT a cached computed value must NOT be moved:
+            # copying a raw formula string into another column would break
+            # its references and overwrite the already-computed value that
+            # currently sits in the target cell.
             if _is_formula(val):
                 computed = formula_values.get((row, col)) if formula_values else None
-                if computed is not None:
-                    val = computed
+                if computed is None:
+                    continue
+                val = computed
 
             cell = ws.cell(row=row, column=target)
             src_cell = ws.cell(row=row, column=col)
@@ -1628,18 +1633,63 @@ def _resolve_formulas_via_engine(ws, excel_path: Path) -> int:
         replaced = 0
         wb_data = load_workbook(str(src_wb_path), data_only=True)
         ws_data = wb_data[ws.title]
+        # 原表隐藏列集合：错误值公式仅在隐藏列中清空为 None，
+        # 可见列的错误值保留原公式（可能是数据问题，需人工查看）。
+        hidden_cols = {
+            col for col in range(1, ws.max_column + 1)
+            if ws.column_dimensions[get_column_letter(col)].hidden
+        }
         for row in range(1, ws.max_row + 1):
             for col in range(1, ws.max_column + 1):
                 cell = ws.cell(row=row, column=col)
                 if isinstance(cell.value, str) and cell.value.startswith("="):
                     computed = ws_data.cell(row=row, column=col).value
-                    if computed is not None and not isinstance(computed, str):
-                        cell.value = computed
-                        replaced += 1
+                    if computed is None:
+                        continue
+                    if isinstance(computed, str):
+                        # 错误值（如 #VALUE!）：仅隐藏单元格的公式直接清空为 None
+                        stripped = computed.strip()
+                        if stripped.startswith("#") and stripped.endswith("!"):
+                            if col in hidden_cols:
+                                cell.value = None
+                                replaced += 1
+                            continue
+                        # 数值字符串（如 "720.19"）转成 float 后写回
+                        try:
+                            computed = float(stripped)
+                        except ValueError:
+                            continue
+                    cell.value = computed
+                    replaced += 1
         wb_data.close()
         return replaced
 
     try:
+        # 原表隐藏列中的计算公式无需保留（打印不显示，且删列时会被误搬移覆盖
+        # 正常数值）：提前全部清除，不参与引擎求值。
+        hidden_cols = [
+            col for col in range(1, ws.max_column + 1)
+            if ws.column_dimensions[get_column_letter(col)].hidden
+        ]
+        if hidden_cols:
+            cleared = 0
+            for col in hidden_cols:
+                for row in range(1, ws.max_row + 1):
+                    cell = ws.cell(row=row, column=col)
+                    if isinstance(cell.value, str) and cell.value.startswith("="):
+                        cell.value = None
+                        cleared += 1
+            if cleared:
+                logger.info(f"[EVAL] Cleared {cleared} formulas in hidden columns "
+                            f"{[get_column_letter(c) for c in hidden_cols]}")
+
+        # 空字符串单元格 → 真空：东软导出的空单元格是 ''(文本)，被公式引用时
+        # 外部引擎会算出 #VALUE! 错误而非数值（如 =ROUND(M30*0.0672,2)）。
+        # 转成 None 后引擎按 0 参与运算，公式才能算出数值。
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.value == "":
+                    cell.value = None
         # 保存当前工作簿到临时文件
         ws.parent.save(str(tmp_src))
         logger.info(f"[EVAL] Saved temp workbook: {tmp_src.name}")
