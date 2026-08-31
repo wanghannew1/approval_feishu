@@ -22,6 +22,7 @@ from app.batch_processor import (
     _is_standard_filename,
     _is_unit_name,
     _remove_empty_columns,
+    _resolve_unique_path,
     get_payroll_config,
     get_signature_path,
     is_payroll_sheet,
@@ -662,3 +663,48 @@ class TestCleanupEmptyColumns:
         assert "signed_tddd_dialog_abc123" in result.name
         assert "2026年派遣员工5月工资明细表" in result.name
         assert result.name.endswith(".xlsx")
+
+    def test_build_output_path_keeps_original_name_on_standard_collision(self, tmp_path):
+        """When the standard-renamed target already exists, keep original stem.
+
+        Two source files whose worksheet titles both map to
+        ``signed_吉林大学第二医院-助培奖金2026年07月工资表.xlsx`` — only the
+        original names differ (``-发工资`` vs ``-人事代理``).  The second one
+        must NOT overwrite the first.
+        """
+        # Both worksheets carry the same standard title.
+        ws = self._make_ws({
+            (1, 1): "吉林大学第二医院-助培奖金2026年07月工资表",
+        })
+        # The "first" file already produced the standard-named output.
+        standard_path = tmp_path / "signed_吉林大学第二医院-助培奖金2026年07月工资表.xlsx"
+        standard_path.touch()
+
+        src = tmp_path / "专科医师规范化培训学员2026年6月补助明细（彩虹-人事代理）-发工资.xlsx"
+        src.touch()
+        dst = tmp_path / "signed_专科医师规范化培训学员2026年6月补助明细（彩虹-人事代理）-发工资.xlsx"
+        result = _build_output_path(src, dst, ws)
+
+        # Falls back to the original filename rather than overwriting the standard one.
+        assert result.name == dst.name
+        assert standard_path.exists()  # first file untouched
+        assert result != standard_path
+
+    def test_resolve_unique_path_appends_numeric_suffix(self, tmp_path):
+        """Existing target gets _1, _2, … numeric suffixes."""
+        target = tmp_path / "signed_foo.xlsx"
+
+        # Free → unchanged.
+        assert _resolve_unique_path(target) == target
+
+        # One collision → _1.
+        target.touch()
+        unique1 = _resolve_unique_path(target)
+        assert unique1 != target
+        assert unique1.name == "signed_foo_1.xlsx"
+        assert not unique1.exists()
+
+        # Two collisions → _2.
+        unique1.touch()
+        unique2 = _resolve_unique_path(target)
+        assert unique2.name == "signed_foo_2.xlsx"

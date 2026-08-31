@@ -1106,6 +1106,24 @@ def _extract_first_row_title(ws) -> Optional[str]:
     return None
 
 
+def _resolve_unique_path(path: Path) -> Path:
+    """Return *path* unless it already exists, then bump a numeric suffix.
+
+    Ultimate overwrite guard: if the requested output file already exists on
+    disk, append ``_1``, ``_2``, … before the extension so a *signed_* file is
+    never silently overwritten.  e.g. ``signed_foo.xlsx`` → ``signed_foo_1.xlsx``.
+    """
+    if not path.exists():
+        return path
+    stem, suffix = path.stem, path.suffix
+    counter = 1
+    while True:
+        candidate = path.with_name(f"{stem}_{counter}{suffix}")
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
 def _build_output_path(excel_path: Path, output_path: Path, ws) -> Path:
     """Build the final signed output path with optional standard renaming.
 
@@ -1115,13 +1133,25 @@ def _build_output_path(excel_path: Path, output_path: Path, ws) -> Path:
       2. Fallback: for raw Feishu exports (``tddd_dialog*``), append the
          row-1 title to the filename so it becomes distinguishable.
       3. Return the original *output_path* unchanged.
+
+    When the preferred (standard-renamed) target already exists on disk — e.g.
+    two source files whose worksheet titles map to the same standard name —
+    fall back to preserving the *original* filename (``signed_<stem>.xlsx``),
+    which naturally keeps each source file distinct.  If even that collides,
+    :func:`_resolve_unique_path` appends a numeric suffix as the final guard.
     """
     original_name = excel_path.name
 
     if not _is_standard_filename(original_name):
         standard = _build_standard_name(excel_path, ws)
         if standard:
-            return output_path.parent / f"signed_{standard}"
+            candidate = output_path.parent / f"signed_{standard}"
+            if not candidate.exists():
+                return candidate
+            # Standard name already taken → keep the original source name to
+            # disambiguate (suffixes such as ``-发工资`` / ``-人事代理`` live
+            # only in the original filename, not in the worksheet title).
+            return output_path
 
     if original_name.lower().startswith("tddd_dialog"):
         title = _extract_first_row_title(ws)
@@ -1935,13 +1965,19 @@ def _insert_signature_to_excel_openpyxl(
             del wb[sn]
             logger.info(f"[SIGN] Removed non-payroll sheet: {sn}")
 
+        # Never overwrite an existing *_signed* file: resolve a free path BEFORE
+        # writing, bumping a numeric suffix if the target is already taken.
+        save_target = _resolve_unique_path(actual_output)
+        if save_target != actual_output:
+            logger.warning(f"[SIGN] 已存在同名文件，保存为 {save_target.name}，避免覆盖")
         try:
-            wb.save(str(actual_output))
+            wb.save(str(save_target))
         except PermissionError:
-            fallback = actual_output.parent / f"{actual_output.stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            logger.warning(f"[SIGN] 文件被占用，无法写入 {actual_output.name}，另存为 {fallback.name}")
+            fallback = save_target.parent / f"{save_target.stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            logger.warning(f"[SIGN] 文件被占用，无法写入 {save_target.name}，另存为 {fallback.name}")
             wb.save(str(fallback))
-            actual_output = fallback
+            save_target = fallback
+        actual_output = save_target
         logger.info(f"[SIGN] Saved to {actual_output.name}, inserted: {inserted_roles}")
         return len(inserted_roles) > 0, inserted_roles, actual_output
     except Exception as e:
