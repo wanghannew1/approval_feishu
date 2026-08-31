@@ -373,13 +373,32 @@ def download_file(token: str, file_token_or_url: str, save_dir: str) -> str:
 
     save_path = Path(save_dir)
     save_path.mkdir(parents=True, exist_ok=True)
-    filepath = save_path / filename
+    filepath = _resolve_unique_download_path(save_path / filename)
 
     with open(filepath, "wb") as f:
         for chunk in resp.iter_content(chunk_size=8192):
             f.write(chunk)
 
     return str(filepath)
+
+
+def _resolve_unique_download_path(path: Path) -> Path:
+    """Return *path* unless it already exists, then bump a numeric suffix.
+
+    Guards against silently overwriting a previously downloaded attachment
+    that shares the same filename (e.g. two ``工资表.xlsx`` in one approval).
+    Existing file is left untouched; the new download is written to
+    ``name_1.ext``, ``name_2.ext``, … as needed.
+    """
+    if not path.exists():
+        return path
+    stem, suffix = path.stem, path.suffix
+    counter = 1
+    while True:
+        candidate = path.with_name(f"{stem}_{counter}{suffix}")
+        if not candidate.exists():
+            return candidate
+        counter += 1
 
 
 def get_definition(token: str, definition_code: str) -> dict:

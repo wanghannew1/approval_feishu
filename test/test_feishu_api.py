@@ -520,3 +520,27 @@ class TestDownloadFile:
         with patch("app.feishu_api.requests.get", return_value=mock_response):
             result = download_file(mock_token, "tok1", str(tmp_path))
             assert Path(result).name == "工资表.xls"
+
+    def test_download_file_avoids_overwrite_on_collision(self, mock_token, tmp_path):
+        """Existing file with the same name is NOT overwritten — numeric suffix."""
+        contents = iter([b"first-file", b"second-file"])
+
+        def _mk_response(_url, **_kw):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.headers = {"Content-Disposition": 'attachment; filename="工资表.xlsx"'}
+            resp.iter_content.return_value = [next(contents)]
+            return resp
+
+        with patch("app.feishu_api.requests.get", side_effect=_mk_response):
+            result1 = download_file(mock_token, "tok1", str(tmp_path))
+            result2 = download_file(mock_token, "tok2", str(tmp_path))
+
+        first = Path(result1)
+        second = Path(result2)
+        assert first.name == "工资表.xlsx"
+        assert second.name == "工资表_1.xlsx"
+        assert second.exists()
+        # Each file keeps its own distinct content — nothing was overwritten.
+        assert first.read_bytes() == b"first-file"
+        assert second.read_bytes() == b"second-file"
