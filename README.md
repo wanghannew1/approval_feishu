@@ -88,6 +88,20 @@ streamlit run app/app.py
 - **签名插入**：按审批人角色自动匹配签名图片插入 Excel
 - **批量打印**：支持 Windows COM + LibreOffice 双平台打印
 - **缓存管理**：Token 自动刷新，下载 URL 12 小时缓存
+- **防覆盖机制**：下载与签名输出全程保证不覆盖同名文件（详见 [`docs/decisions/file-overwrite-prevention.md`](./docs/decisions/file-overwrite-prevention.md)）
+
+## 文件防覆盖机制
+
+下载飞书附件与签名输出 Excel 时，若文件名重名，系统保证**已存在的文件绝不被覆盖**：
+
+1. **下载阶段**（`download_file`）：同名附件追加 `_1` / `_2` 数字后缀
+2. **签名输出阶段**（`_build_output_path`）：
+   - 文件名不规范 → 优先用标准名（`单位+年月工资表`）
+   - 标准名撞车 → 回退保留原始文件名（如 `-发工资` / `-人事代理`）
+   - 原始文件名也撞车 → `_resolve_unique_path` 数字后缀兜底（`_1` / `_2` …）
+3. 文件被占用（如 Excel 打开中）→ 时间戳后缀另存
+
+完整设计见 [`docs/decisions/file-overwrite-prevention.md`](./docs/decisions/file-overwrite-prevention.md)。
 
 ## 涉及的飞书 API
 
