@@ -23,6 +23,7 @@ from app.batch_processor import (
     _is_unit_name,
     _remove_empty_columns,
     _resolve_unique_path,
+    _trim_trailing_empty_columns,
     get_payroll_config,
     get_signature_path,
     is_payroll_sheet,
@@ -375,6 +376,96 @@ class TestProcessSingleApproval:
 
         assert result["instance_code"] == "instance_abc"
         assert result["title"] == "标题"
+
+
+class TestTrimTrailingEmptyColumns:
+    """Test suite for _trim_trailing_empty_columns.
+
+    真实故障：``汪清县林业局天桥岭林场202609.xlsx`` 第 13 行被整行套用格式，
+    空单元格一路延伸到 XEZ（第 16380 列）。openpyxl 的 ``max_column`` 因此变成
+    16 380，把下游的全表扫描和逐列删除放大到几万次迭代，表现为"卡死"且全程
+    无日志（见 app.log 2026-09-29 15:12:32 停在 "WPS resolved 33 formulas"）。
+    """
+
+    def test_trims_ghost_columns_extending_to_xez(self):
+        """A row formatted out to XEZ must be trimmed back to the real data."""
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        ws.cell(row=1, column=1, value="姓名")
+        ws.cell(row=2, column=1, value="张三")
+        ws.cell(row=1, column=32, value="合计")          # AF — 最后一列真实数据
+        ws.cell(row=2, column=32, value=100)
+        # 第 13 行整行套用格式：空单元格延伸到 XEZ
+        for col in range(2, 16381):
+            ws.cell(row=13, column=col).number_format = "General"
+        assert ws.max_column == 16380
+
+        trimmed = _trim_trailing_empty_columns(ws)
+
+        assert trimmed == 16380 - 32
+        assert ws.max_column == 32
+        assert ws.cell(row=1, column=1).value == "姓名"
+        assert ws.cell(row=2, column=32).value == 100
+
+    def test_keeps_trailing_column_that_has_a_value(self):
+        """裁剪只动"右侧全空"区域 —— 最后一个有值的列必须保留。"""
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        ws.cell(row=1, column=1, value="姓名")
+        ws.cell(row=1, column=3, value="备注")
+        # 列 3 之后只有一个空格式单元格
+        ws.cell(row=13, column=4)
+
+        assert ws.max_column == 4
+        assert _trim_trailing_empty_columns(ws) == 1
+        assert ws.max_column == 3
+        assert ws.cell(row=1, column=3).value == "备注"
+
+    def test_drops_merges_entirely_inside_trimmed_span(self):
+        """完全落在待裁区域内的合并区域必须丢弃，否则会被左移到数据区中央。"""
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        ws.cell(row=1, column=1, value="姓名")
+        ws.merge_cells("XEZ1:XFD3")     # 待裁区域内的空合并区域
+        assert ws.max_column == 16384
+
+        _trim_trailing_empty_columns(ws)
+
+        assert ws.max_column == 1
+        assert [str(mr) for mr in ws.merged_cells.ranges] == []
+
+    def test_noop_when_no_trailing_empty_columns(self):
+        """没有尾部空列时不做任何删除。"""
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        ws.cell(row=1, column=1, value="A")
+        ws.cell(row=1, column=2, value="B")
+
+        assert _trim_trailing_empty_columns(ws) == 0
+        assert ws.max_column == 2
+
+    def test_preserves_merge_spanning_into_trimmed_span(self):
+        """合并区域的跨度属于有效版式 —— 锚点有值时其覆盖的空列必须保留。
+
+        签名提示常放在合并单元格里，裁掉跨度会破坏签名插入与打印版式。
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        ws.cell(row=1, column=1, value="跨列标题")
+        ws.merge_cells("A1:C1")
+        for col in range(4, 500):
+            ws.cell(row=13, column=col)
+
+        assert ws.max_column == 499
+        assert _trim_trailing_empty_columns(ws) == 496
+        assert ws.max_column == 3
+        assert [str(mr) for mr in ws.merged_cells.ranges] == ["A1:C1"]
+        assert ws.cell(row=1, column=1).value == "跨列标题"
 
 
 class TestCleanupEmptyColumns:

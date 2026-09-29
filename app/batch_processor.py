@@ -558,6 +558,65 @@ def _delete_cols_with_merge(ws, col, amount=1, saved_all=None):
                 pass
 
 
+def _trim_trailing_empty_columns(ws) -> int:
+    """裁掉表格右侧完全空白的"幽灵列"，返回裁掉的列数。
+
+    手工制作的工资表经常出现整行被套用格式的情况：某行的空单元格一路延伸到
+    XFD 列。真实案例 ``汪清县林业局天桥岭林场202609.xlsx`` 的第 13 行延伸到
+    ``XEZ``（第 16380 列），共 16 379 个"空但带格式"的单元格，而真实数据只到
+    ``AF``（第 32 列）。
+
+    openpyxl 的 ``max_column`` 来自实际解析到的单元格，因此会变成 16 380，于是
+    下游每一个 ``range(1, max_column + 1)`` 全表扫描、每一次逐列删除都被放大到
+    几万次——表现就是"程序卡死"，且期间没有任何日志输出。
+
+    **必须在任何全表扫描之前调用**：扫描本身会把 16 380 列全部实例化成单元格
+    （245 700 个），之后再裁剪就要多花两个数量级的时间。
+
+    这里直接遍历 openpyxl 的内部单元格索引 ``_cells``，不实例化新单元格，
+    因此 16 380 列的文件也只要几毫秒（实测 0.05 s）。
+    """
+    max_col = ws.max_column
+    if max_col <= 1:
+        return 0
+
+    # 只看"有值"的单元格求最后一个非空列；纯格式单元格不占位。
+    last = 0
+    for (_row, col), cell in ws._cells.items():
+        if col > last and cell.value not in (None, ""):
+            last = col
+
+    # 合并区域的跨度同样是有意义的版式信息：锚点有值时，被合并覆盖的那些空列
+    # 仍在表头/签名区里占位（签名提示就常放在合并单元格中），裁掉会破坏版式。
+    # 锚点为空的合并区域则是纯垃圾，连同它的跨度一起丢掉。
+    for mr in ws.merged_cells.ranges:
+        if mr.max_col <= last:
+            continue
+        anchor = ws.cell(row=mr.min_row, column=mr.min_col).value
+        if anchor not in (None, ""):
+            last = mr.max_col
+
+    if last >= max_col:
+        return 0
+
+    # 完全落在待裁区域内的合并区域，其锚点必然为空值（否则 last >= min_col）。
+    # 若不先丢弃，_delete_cols_with_merge 会把它们整体左移到数据区中央，
+    # 凭空造出一片无意义的合并区域。
+    for mr in [m for m in ws.merged_cells.ranges if m.min_col > last]:
+        try:
+            ws.unmerge_cells(str(mr))
+        except KeyError:
+            pass
+
+    trimmed = max_col - last
+    _delete_cols_with_merge(ws, last + 1, trimmed)
+    logger.info(
+        f"[TRIM] 裁掉右侧 {trimmed} 个全空列 "
+        f"({get_column_letter(last + 1)}..{get_column_letter(max_col)})"
+    )
+    return trimmed
+
+
 def _detect_data_start_row(ws) -> int:
     """Detect the first data row by finding the "序号" column.
 
@@ -614,9 +673,19 @@ def _remove_empty_columns(ws, cfg, formula_values: Optional[Dict] = None) -> Non
     def _is_removable(val: str) -> bool:
         return any(kw in val for kw in keywords) or _is_formula(val)
 
-    for col in range(ws.max_column, 0, -1):
+    # openpyxl 的 max_row / max_column 不是缓存属性：每次访问都要遍历全部已
+    # 实例化的单元格重建一个 set()。把它们写进下面这三层循环里会放大成
+    # max_col × max_row × 单元格数 次操作——16380 列的畸形表实测要跑半小时
+    # 且全程无日志，表现为"卡死"。
+    #
+    # max_row 在本函数内不会变（只删列不删行），可以整个函数共用；
+    # max_column 依赖删列后的实际宽度，因此只在每次删列后刷新一次。
+    max_col = ws.max_column
+    row_range = range(DATA_START, ws.max_row + 1)
+
+    for col in range(max_col, 0, -1):
         non_empty = {}
-        for row in range(DATA_START, ws.max_row + 1):
+        for row in row_range:
             v = ws.cell(row=row, column=col).value
             # xlsx 空单元格可能是 '' 而非 None，两者都跳过
             if v not in (None, ''):
@@ -624,6 +693,7 @@ def _remove_empty_columns(ws, cfg, formula_values: Optional[Dict] = None) -> Non
 
         if not non_empty:
             _delete_cols_with_merge(ws, col)
+            max_col = ws.max_column
             removed.append(col)
             continue
 
@@ -631,8 +701,8 @@ def _remove_empty_columns(ws, cfg, formula_values: Optional[Dict] = None) -> Non
             continue
 
         target = None
-        for rc in range(col + 1, ws.max_column + 1):
-            for r in range(DATA_START, ws.max_row + 1):
+        for rc in range(col + 1, max_col + 1):
+            for r in row_range:
                 v = ws.cell(row=r, column=rc).value
                 if v not in (None, '') and not _is_removable(str(v)):
                     target = rc
@@ -641,7 +711,7 @@ def _remove_empty_columns(ws, cfg, formula_values: Optional[Dict] = None) -> Non
                 break
 
         if target is None:
-            target = ws.max_column + 1
+            target = max_col + 1
 
         # Snapshot ALL merged ranges BEFORE any unmerge so that even
         # ranges we're about to unmerge are captured and restored
@@ -689,6 +759,7 @@ def _remove_empty_columns(ws, cfg, formula_values: Optional[Dict] = None) -> Non
             moved.append((col, target, val))
 
         _delete_cols_with_merge(ws, col, saved_all=merge_snapshot)
+        max_col = ws.max_column
         removed.append(col)
 
     if removed:
@@ -1825,6 +1896,10 @@ def _insert_signature_to_excel_openpyxl(
         if payroll_ws is None:
             logger.warning(f"[SIGN] No payroll sheet found in {excel_path.name}")
             return False, [], output_path
+
+        # 必须在下面任何全表扫描之前裁掉右侧"幽灵列"，否则 16380 列的畸形表
+        # 会把后续每个循环放大到几万次迭代（详见 _trim_trailing_empty_columns）。
+        _trim_trailing_empty_columns(payroll_ws)
 
         # 归一化文本单元格 —— 先应用动态规则（从审批角色自动派生），
         # 再叠加手动配置规则（后者优先级高）。
