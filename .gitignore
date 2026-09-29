@@ -20,6 +20,9 @@ app/template/validation_config.json
 # 下载文件
 downloads/
 
+# 运行日志（含真实工资表路径与人员信息，不进版本库）
+logs/
+
 # Token 缓存
 .token_cache.json
 
@@ -33,3 +36,8 @@ __pycache__/
 # .omo runtime state (plans/evidence/notepads are tracked)
 .omo/boulder.json
 .omo/run-continuation/
+
+# 本地 issue 运维脚本（凭据走 .issue_tokens.env，不进版本库）
+check_issues.py
+create_issues.py
+.issue_tokens.env
