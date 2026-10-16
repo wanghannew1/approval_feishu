@@ -1911,15 +1911,22 @@ def _insert_signature_to_excel_openpyxl(
 
         cfg = get_payroll_config()
         payroll_ws = None
+        reject_details: List[str] = []
         for sheet_name in wb.sheetnames:
             ws = wb[sheet_name]
-            if is_payroll_sheet(ws, cfg):
+            reasons = _payroll_sheet_failures(ws, cfg)
+            if not reasons:
                 payroll_ws = ws
                 logger.info(f"[SIGN] Found payroll sheet: {sheet_name}")
                 break
+            reject_details.append(f"「{sheet_name}」" + "；".join(reasons))
 
         if payroll_ws is None:
-            logger.warning(f"[SIGN] No payroll sheet found in {excel_path.name}")
+            detail = "；".join(reject_details) if reject_details else "（工作簿无工作表）"
+            logger.warning(
+                f"[SIGN] No payroll sheet found in {excel_path.name}"
+                f" | 判定依据: {detail}"
+            )
             return False, [], output_path
 
         # 必须在下面任何全表扫描之前裁掉右侧"幽灵列"，否则 16380 列的畸形表
