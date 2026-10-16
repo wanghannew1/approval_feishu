@@ -38,6 +38,27 @@ approval_feishu/
 
 ## 快速开始
 
+### 0. Windows 解禁 PS 脚本（从网络下载 / 跨设备拷贝后必做）
+
+Windows 会为下载或拷贝来的 `.ps1` 打上"来自互联网"锁定标记（Zone.Identifier），
+导致 `start.ps1` 无法运行。执行一次解禁即可：
+
+```powershell
+# 解禁单个脚本（路径按实际位置替换）
+Unblock-File -Path "C:\code\py\工资表签名打印\approval_feishu\start.ps1"
+
+# 或在项目根目录批量解禁全部 ps1
+Get-ChildItem -Recurse -Filter *.ps1 | Unblock-File
+```
+
+说明：
+
+- 解除的是文件的"来自互联网"锁定，与执行策略（`Set-ExecutionPolicy`）是两回事；
+  若提示"禁止运行脚本"则是执行策略问题
+- `git clone` 直接检出的文件一般没有锁定标记，无需处理
+- 其他位置的 ps1 同样用法，替换路径即可，例如：
+  `Unblock-File -Path "E:\工资表报盘合并转换工具\seqprint-master\run_batch_print.ps1"`
+
 ### 1. 环境准备
 
 ```bash
