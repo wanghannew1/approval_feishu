@@ -859,9 +859,17 @@ def _apply_normalization_rules(cell_value: str, rules: list) -> str:
     return cell_value
 
 
-def is_payroll_sheet(ws, config: Optional[dict] = None) -> bool:
-    cfg = config or get_payroll_config()
+def _payroll_sheet_failures(ws, cfg: dict) -> List[str]:
+    """Collect human-readable reasons why *ws* is not a payroll sheet.
+
+    Returns an empty list when the sheet passes every check. Checks run in
+    order (排除词 → 标题词 → 必要内容 → 必签签字栏) and all failures up to
+    that point are collected; the heavier full-sheet signature scan is
+    skipped when earlier checks already failed, since those reasons fully
+    explain the rejection.
+    """
     sf = cfg["sheet_filter"]
+    failures: List[str] = []
 
     all_text = ""
     header_text = ""
@@ -878,15 +886,25 @@ def is_payroll_sheet(ws, config: Optional[dict] = None) -> bool:
 
     for kw in sf.get("exclude_keywords", {}).get("keywords", []):
         if kw in header_text:
-            return False
+            failures.append(f"前3行命中排除词「{kw}」")
 
     title_kw = sf.get("title_keyword", {}).get("required", "")
     if title_kw and title_kw not in header_text:
-        return False
+        failures.append(f"前3行缺少标题词「{title_kw}」")
 
+    # required_content 项两种写法：字符串=必须命中；列表=任一命中。
+    # 如 [["应发工资", "应发合计"], "实发工资"] 表示
+    # （"应发工资" 或 "应发合计"）且 "实发工资" —— 兼容手工制作的工资表。
     for kw in sf.get("required_content", {}).get("required", []):
-        if kw not in all_text:
-            return False
+        if isinstance(kw, (list, tuple)):
+            if not any(k in all_text for k in kw):
+                alts = "」或「".join(str(k) for k in kw)
+                failures.append(f"缺少必要内容（任一）「{alts}」")
+        elif kw not in all_text:
+            failures.append(f"缺少必要内容「{kw}」")
+
+    if failures:
+        return failures
 
     mandatory = {
         k: v for k, v in sf["signatures"]["mandatory"].items()
@@ -905,10 +923,17 @@ def is_payroll_sheet(ws, config: Optional[dict] = None) -> bool:
                     break
             if len(found) == len(mandatory):
                 break
-        if len(found) < len(mandatory):
-            return False
+        missing = [role for role in mandatory if role not in found]
+        if missing:
+            roles = "".join(f"「{r}」" for r in missing)
+            failures.append(f"缺少必签签字栏{roles}")
 
-    return True
+    return failures
+
+
+def is_payroll_sheet(ws, config: Optional[dict] = None) -> bool:
+    cfg = config or get_payroll_config()
+    return not _payroll_sheet_failures(ws, cfg)
 
 
 def _has_unit_name_in_row2(ws) -> bool:

@@ -21,6 +21,7 @@ from app.batch_processor import (
     _get_signature_keywords,
     _is_standard_filename,
     _is_unit_name,
+    _payroll_sheet_failures,
     _remove_empty_columns,
     _resolve_unique_path,
     _trim_trailing_empty_columns,
@@ -89,6 +90,106 @@ class TestIsPayrollSheet:
         }
         ws = self._make_mock_worksheet(row_data)
         assert is_payroll_sheet(ws) is False
+
+    def test_payroll_sheet_required_content_any_of_alternative(self):
+        """手工制作的工资表列名为"应发合计"，应通过任一命中规则。"""
+        row_data = {
+            (1, 1): "吉林农村商业银行股份有限公司-宽平食堂2026年9月外包人员工资发放表",
+            (2, 1): "序号",
+            (2, 2): "应发合计",
+            (2, 3): "实发工资",
+            (3, 1): "养老",
+            (10, 1): "   总经理签字：",
+        }
+        ws = self._make_mock_worksheet(row_data)
+        assert is_payroll_sheet(ws) is True
+
+    def test_payroll_sheet_required_content_alternative_missing_both(self):
+        """任一命中组内所有候选都缺失时应拒绝。"""
+        row_data = {
+            (1, 1): "2026年9月工资发放表",
+            (2, 1): "序号",
+            (2, 2): "成本合计",
+            (2, 3): "实发工资",
+            (3, 1): "养老",
+            (10, 1): "   总经理签字：",
+        }
+        ws = self._make_mock_worksheet(row_data)
+        assert is_payroll_sheet(ws) is False
+
+    def test_failures_reports_reject_criteria(self):
+        """拒绝时给出可读判定依据（排除词/必要内容），供 No payroll sheet 告警使用。"""
+        row_data = {
+            (1, 1): "工资发放汇总数据",
+            (2, 1): "应发合计",
+            (3, 1): "养老",
+            (10, 1): "其他内容",
+        }
+        ws = self._make_mock_worksheet(row_data)
+        custom_config = {
+            "sheet_filter": {
+                "title_keyword": {"required": "工资"},
+                "exclude_keywords": {"keywords": ["汇总数据"]},
+                "required_content": {
+                    "required": [["应发工资", "应发合计"], "实发工资"]
+                },
+                "signatures": {
+                    "mandatory": {"总经理签字": ["总经理签字"]},
+                    "optional": {},
+                },
+            }
+        }
+        reasons = _payroll_sheet_failures(ws, custom_config)
+        assert any("排除词「汇总数据」" in r for r in reasons)
+        # "应发合计"已命中任一组，仅"实发工资"缺失
+        assert any("缺少必要内容「实发工资」" in r for r in reasons)
+
+    def test_failures_reports_missing_mandatory_signature(self):
+        """内容检查通过但缺必签签字栏时，依据应指明缺失角色。"""
+        row_data = {
+            (1, 1): "2026年9月工资发放表",
+            (2, 1): "应发工资",
+            (2, 2): "实发工资",
+            (3, 1): "养老",
+            (10, 1): "其他内容",
+        }
+        ws = self._make_mock_worksheet(row_data)
+        custom_config = {
+            "sheet_filter": {
+                "title_keyword": {"required": "工资"},
+                "exclude_keywords": {"keywords": []},
+                "required_content": {"required": ["应发工资", "实发工资"]},
+                "signatures": {
+                    "mandatory": {"总经理签字": ["总经理签字"]},
+                    "optional": {},
+                },
+            }
+        }
+        reasons = _payroll_sheet_failures(ws, custom_config)
+        assert any("必签签字栏" in r and "总经理签字" in r for r in reasons)
+
+    def test_failures_empty_for_accepted_sheet(self):
+        """通过识别时判定依据为空列表。"""
+        row_data = {
+            (1, 1): "2026年9月工资发放表",
+            (2, 1): "应发工资",
+            (2, 2): "实发工资",
+            (3, 1): "养老",
+            (10, 1): "   总经理签字：",
+        }
+        ws = self._make_mock_worksheet(row_data)
+        custom_config = {
+            "sheet_filter": {
+                "title_keyword": {"required": "工资"},
+                "exclude_keywords": {"keywords": []},
+                "required_content": {"required": ["应发工资", "实发工资"]},
+                "signatures": {
+                    "mandatory": {"总经理签字": ["总经理签字"]},
+                    "optional": {},
+                },
+            }
+        }
+        assert _payroll_sheet_failures(ws, custom_config) == []
 
     def test_payroll_sheet_missing_signature(self):
         row_data = {

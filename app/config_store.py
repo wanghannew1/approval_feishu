@@ -68,7 +68,10 @@ DEFAULT_PAYROLL_CONFIG: Dict[str, object] = {
     "sheet_filter": {
         "title_keyword": {"required": "工资"},
         "exclude_keywords": {"keywords": ["汇总数据"]},
-        "required_content": {"required": ["应发工资", "实发工资"]},
+        # 项为字符串=必须命中；项为列表=任一命中（兼容"应发合计"等手工表列名）
+        "required_content": {
+            "required": [["应发工资", "应发合计"], "实发工资"]
+        },
         "signatures": {
             "mandatory": {"总经理签字": ["总经理签字"]},
             "optional": {
