@@ -68,9 +68,11 @@ DEFAULT_PAYROLL_CONFIG: Dict[str, object] = {
     "sheet_filter": {
         "title_keyword": {"required": "工资"},
         "exclude_keywords": {"keywords": ["汇总数据"]},
-        # 项为字符串=必须命中；项为列表=任一命中（兼容"应发合计"等手工表列名）
+        # 项为字符串=必须命中；项为列表=任一命中（兼容"应发合计"等手工表列名）。
+        # "姓名"/"序号" 是明细表标志：每张需打印的工资明细表都有这两列，汇总表没有，
+        # 据此纳入经济补偿金等列名不标准的明细表（如"转款合计"代替"应发合计"）。
         "required_content": {
-            "required": [["应发工资", "应发合计"], "实发工资"]
+            "required": [["应发工资", "应发合计", "姓名", "序号"], "实发工资"]
         },
         "signatures": {
             "mandatory": {"总经理签字": ["总经理签字"]},

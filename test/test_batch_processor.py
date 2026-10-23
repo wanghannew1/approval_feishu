@@ -104,13 +104,16 @@ class TestIsPayrollSheet:
         ws = self._make_mock_worksheet(row_data)
         assert is_payroll_sheet(ws) is True
 
-    def test_payroll_sheet_required_content_alternative_missing_both(self):
-        """任一命中组内所有候选都缺失时应拒绝。"""
+    def test_payroll_sheet_required_content_alternative_missing_all(self):
+        """任一命中组内所有候选都缺失时应拒绝。
+
+        组内候选 = 应发工资 / 应发合计 / 姓名 / 序号（见 payroll_sheet_config）。
+        夹具刻意不含任何一个，仅保留标题词与"实发工资"，验证任一组全缺即拒。
+        """
         row_data = {
             (1, 1): "2026年9月工资发放表",
-            (2, 1): "序号",
-            (2, 2): "成本合计",
-            (2, 3): "实发工资",
+            (2, 1): "成本合计",
+            (2, 2): "实发工资",
             (3, 1): "养老",
             (10, 1): "   总经理签字：",
         }
