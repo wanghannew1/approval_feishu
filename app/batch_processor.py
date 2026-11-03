@@ -684,6 +684,10 @@ def _remove_empty_columns(ws, cfg, formula_values: Optional[Dict] = None) -> Non
     row_range = range(DATA_START, ws.max_row + 1)
 
     for col in range(max_col, 0, -1):
+        # 跳过隐藏列：固化公式后隐藏列已无数据价值，统一在末尾统一删除，
+        # 这里不参与空列清理，避免被误判为可移除列。
+        if ws.column_dimensions[get_column_letter(col)].hidden:
+            continue
         non_empty = {}
         for row in row_range:
             v = ws.cell(row=row, column=col).value
@@ -767,6 +771,27 @@ def _remove_empty_columns(ws, cfg, formula_values: Optional[Dict] = None) -> Non
     if moved:
         for s, d, v in moved:
             logger.info(f"[CLEANUP] Moved '{v}' from col {s} to col {d}")
+
+
+def _delete_remaining_hidden_columns(ws) -> None:
+    """删除所有原始隐藏列（从右到左，避免列索引偏移）。
+
+    公式固化后，原始隐藏列（如“应纳税所得额”）已无数据价值，
+    不应占用打印位置。openpyxl 的 delete_cols 只移动单元格内容，
+    不移动 column_dimensions，因此删除后需重置所有列的 hidden 状态，
+    交由 adjust_excel_for_print 中的 _hide_columns 按表头名重新设置。
+    """
+    to_delete = []
+    for col in range(1, ws.max_column + 1):
+        col_letter = get_column_letter(col)
+        if ws.column_dimensions[col_letter].hidden:
+            to_delete.append(col)
+    for col in sorted(to_delete, reverse=True):
+        _delete_cols_with_merge(ws, col)
+        logger.info(f"[HIDDEN-DEL] 删除原始隐藏列 {get_column_letter(col)}")
+    # 重置 hidden 状态，避免 delete_cols 未移动 column_dimensions 导致的错位
+    for col in range(1, ws.max_column + 1):
+        ws.column_dimensions[get_column_letter(col)].hidden = False
 
 
 def _remove_force_delete_columns(ws, cfg, formula_values: Optional[Dict] = None) -> None:
@@ -1762,7 +1787,7 @@ def _resolve_formulas_via_engine(ws, excel_path: Path) -> int:
                             computed = float(stripped)
                         except ValueError:
                             continue
-                    cell.value = computed
+                    cell.value = round(computed, 2) if isinstance(computed, float) else computed
                     replaced += 1
         wb_data.close()
         return replaced
@@ -1936,6 +1961,9 @@ def _insert_signature_to_excel_openpyxl(
 
         if cfg.get("remove_empty_columns", {}).get("enabled", True):
             _remove_empty_columns(payroll_ws, cfg)
+        # 公式固化后，原始隐藏列（如“应纳税所得额”）已无数据价值，
+        # 统一在此删除，避免占用打印位置。
+        _delete_remaining_hidden_columns(payroll_ws)
         _restore_total_row_borders(payroll_ws)
         positions = find_all_signature_positions(payroll_ws, cfg)
         adjust_excel_for_print(payroll_ws, cfg, id_card_min_width=id_card_min_width)
