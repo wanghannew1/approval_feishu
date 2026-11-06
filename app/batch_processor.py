@@ -813,12 +813,58 @@ def _remove_empty_columns(ws, cfg, formula_values: Optional[Dict] = None) -> Non
             logger.info(f"[CLEANUP] Moved '{v}' from col {s} to col {d}")
 
 
+def _rescue_merge_anchors_in_column(ws, col: int, doomed_cols: set) -> None:
+    """隐藏列若是某合并单元格的锚点列，且范围延伸到存活列，保留其显示内容。
+
+    锚点在隐藏列、合并范围却延伸到可见列时（真实案例：H10:N10 合并，
+    H 隐藏，锚点值“分管领导审核：”实际横跨可见的 I..N 显示），内容是
+    显示出来的，必须保留：删列前把锚点值搬到范围内第一个存活列并重建
+    合并，删除后布局不变。
+
+    范围完全落在隐藏列内的合并（如 AE3:AE5 的“应纳税所得额”表头）
+    内容不显示，随列一并丢弃，不做处理。
+    """
+    for mr in list(ws.merged_cells.ranges):
+        mc, r0, mxc, rmax = mr.bounds
+        if mc != col:
+            continue
+        if all(c in doomed_cols for c in range(mc, mxc + 1)):
+            continue
+        src = ws.cell(row=r0, column=mc)
+        val = src.value
+        fmt = (copy(src.font), copy(src.alignment),
+               copy(src.border), copy(src.number_format))
+        try:
+            ws.unmerge_cells(str(mr))
+        except Exception:
+            pass
+        # 范围内第一个存活列作为新锚点；delete_cols 左移后恰好落回
+        # 收缩后合并的锚点位，显示布局与原表一致。
+        c_s = next(c for c in range(mc, mxc + 1) if c not in doomed_cols)
+        tgt = ws.cell(row=r0, column=c_s)
+        tgt.value = val
+        tgt.font, tgt.alignment, tgt.border, tgt.number_format = fmt
+        try:
+            ws.merge_cells(start_row=r0, start_column=c_s,
+                           end_row=rmax, end_column=mxc)
+        except Exception:
+            pass
+        logger.info(
+            f"[HIDDEN-DEL] 合并锚点 {get_column_letter(mc)}{r0} 值 {val!r}"
+            f" 搬到可见锚点 {get_column_letter(c_s)}{r0}，合并收缩为 "
+            f"{get_column_letter(c_s)}{r0}:{get_column_letter(mxc)}{rmax}"
+        )
+
+
 def _delete_remaining_hidden_columns(ws) -> None:
     """删除所有原始隐藏列（从右到左，避免列索引偏移）。
 
     公式固化后，原始隐藏列（如“应纳税所得额”）已无数据价值，
     不应占用打印位置。列删除经由 _delete_cols_with_merge 完成，
     hidden 标记随数据同步左移，因此这里的判断始终可信。
+    隐藏内容去留只看一条规则：锚点在隐藏列、合并范围延伸到可见列的
+    合并单元格（如“分管领导审核：”合并 H10:N10），内容实际显示，
+    删列前搬锚点收缩合并予以保留；其余隐藏内容一律随列丢弃。
     最后重置所有列的 hidden 状态，交由 adjust_excel_for_print
     中的 _hide_columns 按表头名重新设置。
     """
@@ -827,7 +873,9 @@ def _delete_remaining_hidden_columns(ws) -> None:
         col_letter = get_column_letter(col)
         if ws.column_dimensions[col_letter].hidden:
             to_delete.append(col)
+    doomed = set(to_delete)
     for col in sorted(to_delete, reverse=True):
+        _rescue_merge_anchors_in_column(ws, col, doomed)
         _delete_cols_with_merge(ws, col)
         logger.info(f"[HIDDEN-DEL] 删除原始隐藏列 {get_column_letter(col)}")
     # 重置 hidden 状态，后续由 _hide_columns 按表头名（部门/岗位/职工号）重设
@@ -2003,7 +2051,9 @@ def _insert_signature_to_excel_openpyxl(
         if cfg.get("remove_empty_columns", {}).get("enabled", True):
             _remove_empty_columns(payroll_ws, cfg)
         # 公式固化后，原始隐藏列（如“应纳税所得额”）已无数据价值，
-        # 统一在此删除，避免占用打印位置。
+        # 统一在此删除，避免占用打印位置。锚点在隐藏列但合并范围延伸到
+        # 可见列的内容（如“分管领导审核：”合并 H10:N10）会在删除前
+        # 被搬到收缩后的合并锚点上，布局不变。
         _delete_remaining_hidden_columns(payroll_ws)
         _restore_total_row_borders(payroll_ws)
         positions = find_all_signature_positions(payroll_ws, cfg)

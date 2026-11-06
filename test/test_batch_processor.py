@@ -750,6 +750,49 @@ class TestCleanupEmptyColumns:
         assert ws.cell(row=4, column=6).value == 4867.68  # 实发合计
         assert not any(d.hidden for d in ws.column_dimensions.values())
 
+    def test_delete_hidden_columns_merge_anchor_rules(self):
+        """Regression: 隐藏列内容去留按"是否实际显示"判定。
+
+        真实案例（吉林大学第一医院工资表）："分管领导审核："是合并
+        H10:N10 的锚点，H 列隐藏但范围延伸到可见列——内容实际显示，
+        必须保留在收缩后的合并锚点上；而全隐藏的合并（AE3:AE5
+        "应纳税所得额"）内容不显示，随列丢弃。
+        """
+        from app.batch_processor import find_all_signature_positions
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        ws.cell(row=3, column=1, value="序号")
+        ws.cell(row=3, column=2, value="姓名")
+        ws.cell(row=3, column=4, value="基本工资")
+        ws.cell(row=4, column=1, value=1)
+        ws.cell(row=4, column=4, value=5500)
+        ws.cell(row=10, column=1, value="总经理签字：")
+        # 合并 C10:E10：锚点 C 隐藏，范围延伸到可见的 D/E → 内容实际显示
+        ws.cell(row=10, column=3, value="分管领导审核：")
+        ws.merge_cells("C10:E10")
+        # 全隐藏合并 C8:C9：内容不显示 → 随列丢弃
+        ws.cell(row=8, column=3, value="应纳税所得额")
+        ws.merge_cells("C8:C9")
+        ws.column_dimensions["C"].hidden = True
+
+        cfg = get_payroll_config()
+        _delete_remaining_hidden_columns(ws)
+
+        # 可见合并：锚点值保留、合并收缩到存活列（删 C 后 D/E 左移为 C/D）
+        assert ws.cell(row=10, column=3).value == "分管领导审核："
+        assert any(str(mr) == "C10:D10" for mr in ws.merged_cells.ranges), (
+            [str(mr) for mr in ws.merged_cells.ranges])
+        # 全隐藏合并：内容随列丢弃
+        assert ws.cell(row=8, column=3).value is None
+        assert not any("8" in str(mr) or "9" in str(mr).split(":")[0]
+                       for mr in ws.merged_cells.ranges)
+        # 签名定位能找到两个角色
+        positions = find_all_signature_positions(ws, cfg)
+        assert "分管领导审核" in positions, positions
+        assert "总经理签字" in positions, positions
+
     def test_zhibiaoren_right_alignment(self):
         """Test that a cell containing '制表人' gets right/center alignment,
         matching the inline logic from _insert_signature_to_excel_openpyxl."""
