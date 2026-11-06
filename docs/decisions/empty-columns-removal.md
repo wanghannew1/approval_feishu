@@ -26,11 +26,14 @@
 
 这样保证签字提示词不因列删除而丢失，同时不覆盖已有数据。
 
-### 3. 合并单元格
+### 3. 合并单元格与列元数据
 
-**规则**: 合并单元格由 openpyxl 的 `delete_cols` 自动调整合并范围，无需额外处理。
+**规则**: 列删除必须经由 `_delete_cols_with_merge` 完成，不得直接调用 `ws.delete_cols`。
 
-删除列时，openpyxl 会自动收缩受影响的合并单元格区域。开发者无需手动调整合并范围，也不需对合并单元格做特殊判断。
+openpyxl 的 `delete_cols` **不会**自动调整合并单元格范围（会留下失效的 MergedCell），
+也**不会**移动 `column_dimensions`（hidden/width 标记钉死在旧列字母上）。前者由
+`_delete_cols_with_merge` 的快照-删除-重建流程处理，后者由 `_shift_column_dimensions`
+同步左移处理。细节与事故复盘见 [delete-cols-column-dimensions.md](delete-cols-column-dimensions.md)。
 
 ### 4. 关键词来源
 
