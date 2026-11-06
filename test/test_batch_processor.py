@@ -15,6 +15,7 @@ from openpyxl.styles import Alignment, Font
 from app.batch_processor import (
     _build_output_path,
     _build_standard_name,
+    _delete_remaining_hidden_columns,
     _extract_first_row_title,
     _extract_unit_name,
     _extract_year_month,
@@ -23,6 +24,7 @@ from app.batch_processor import (
     _is_unit_name,
     _payroll_sheet_failures,
     _remove_empty_columns,
+    _remove_force_delete_columns,
     _resolve_unique_path,
     _trim_trailing_empty_columns,
     get_payroll_config,
@@ -709,6 +711,44 @@ class TestCleanupEmptyColumns:
         assert ws.max_column == 3
         assert ws.cell(row=5, column=3).value == "End"
         assert any("A5:B6" in str(mc) for mc in ws.merged_cells.ranges)
+
+    def test_force_delete_keeps_data_columns_despite_hidden_flags(self):
+        """Regression: 删除"岗位"列后，原隐藏列的 hidden 标记必须随数据左移。
+
+        真实场景（吉林大学第一医院工资表）：D/F/H 为隐藏空白间隔列，
+        AE 为隐藏"应纳税所得额"。强删"岗位"（E 列）后数据整体左移，
+        若 column_dimensions 不同步左移，hidden 标记会贴到左移进来的
+        基本工资/应发工资/实发合计上，被后续隐藏列清理误删。
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        # row3 表头 + row4 数据。C 为隐藏空白间隔列（真实表 D/F/H），
+        # H 为隐藏"应纳税所得额"计算列（真实表 AE）。
+        headers = {1: "序号", 2: "姓名", 4: "岗位", 5: "基本工资",
+                   6: "应发工资", 7: "个人所得税", 8: "应纳税所得额",
+                   9: "实发合计"}
+        for c, v in headers.items():
+            ws.cell(row=3, column=c, value=v)
+        data = {1: 1, 2: "张三", 4: "助理", 5: 5500, 6: 5500,
+                7: 0, 8: 18883.18, 9: 4867.68}
+        for c, v in data.items():
+            ws.cell(row=4, column=c, value=v)
+        for letter in ("C", "H"):
+            ws.column_dimensions[letter].hidden = True
+
+        cfg = get_payroll_config()
+        _remove_force_delete_columns(ws, cfg)
+        _remove_empty_columns(ws, cfg)
+        _delete_remaining_hidden_columns(ws)
+
+        got = [ws.cell(row=3, column=c).value for c in range(1, ws.max_column + 1)]
+        # 岗位、空白间隔列、应纳税所得额被删；其余数据列全部保留
+        assert got == ["序号", "姓名", "基本工资", "应发工资",
+                       "个人所得税", "实发合计"], got
+        assert ws.cell(row=4, column=4).value == 5500   # 应发工资
+        assert ws.cell(row=4, column=6).value == 4867.68  # 实发合计
+        assert not any(d.hidden for d in ws.column_dimensions.values())
 
     def test_zhibiaoren_right_alignment(self):
         """Test that a cell containing '制表人' gets right/center alignment,

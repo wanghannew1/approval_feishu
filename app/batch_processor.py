@@ -24,7 +24,7 @@ from openpyxl.drawing.spreadsheet_drawing import (
     pixels_to_EMU,
 )
 from openpyxl.styles import Alignment, Border, Font, Side
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import column_index_from_string, get_column_letter
 
 from app.feishu_api import download_file, extract_attachments, get_instance_detail, parse_form
 from app import config_store
@@ -514,6 +514,42 @@ def _rebuild_header_merges(ws, header_rows: int = 5) -> None:
                 pass
 
 
+def _shift_column_dimensions(ws, col: int, amount: int) -> None:
+    """删除列后，把 ``column_dimensions`` 元数据同步左移 amount 列。
+
+    openpyxl 的 ``delete_cols`` 只移动单元格内容与合并格，**不动**
+    ``column_dimensions``（hidden/width 等）。hidden 标记钉死在旧列字母上，
+    删列后数据左移，标记会"贴"到移进来的数据列上——后续任何按 hidden
+    标记的清理（_remove_empty_columns 的隐藏列跳过、
+    _delete_remaining_hidden_columns）都会把真实数据列误当隐藏列删掉
+    （曾导致 应发工资/实发合计 被误删）。
+    """
+    dims = ws.column_dimensions
+    remapped: Dict[str, Any] = {}
+    for key, dim in list(dims.items()):
+        try:
+            idx = column_index_from_string(key)
+        except ValueError:
+            remapped[key] = dim  # 非常规键名，原样保留
+            continue
+        dmin = dim.min or idx
+        dmax = dim.max or idx
+        if dmax < col:
+            # 完全在删除区间左侧：不动
+            remapped[key] = dim
+        elif dmin >= col + amount:
+            # 完全在右侧：整体左移
+            dim.min, dim.max = dmin - amount, dmax - amount
+            remapped[get_column_letter(dim.min)] = dim
+        elif dmin < col:
+            # 跨删除区间：截断，保留左侧段
+            dim.min, dim.max = dmin, col - 1
+            remapped[key] = dim
+        # 完全落在删除区间内：元数据随列一并丢弃
+    dims.clear()
+    dims.update(remapped)
+
+
 def _delete_cols_with_merge(ws, col, amount=1, saved_all=None):
     """Delete *amount* columns, then restore every merged range correctly.
 
@@ -524,6 +560,9 @@ def _delete_cols_with_merge(ws, col, amount=1, saved_all=None):
     This function takes a snapshot of **all** current merged ranges,
     deletes the columns, then rebuilds each range with the deleted span
     removed (or shifted left for ranges entirely to the right).
+
+    It also shifts ``column_dimensions`` (hidden flags / widths) to keep
+    them aligned with the shifted data — ``delete_cols`` moves neither.
 
     If *saved_all* is provided (a full snapshot obtained before any
     explicit ``unmerge_cells`` call), it is used instead of taking a new
@@ -540,6 +579,7 @@ def _delete_cols_with_merge(ws, col, amount=1, saved_all=None):
             pass
 
     ws.delete_cols(col, amount)
+    _shift_column_dimensions(ws, col, amount)
 
     for mr in saved_all:
         mc, r0, mxc, rmax = mr.bounds
@@ -777,9 +817,10 @@ def _delete_remaining_hidden_columns(ws) -> None:
     """删除所有原始隐藏列（从右到左，避免列索引偏移）。
 
     公式固化后，原始隐藏列（如“应纳税所得额”）已无数据价值，
-    不应占用打印位置。openpyxl 的 delete_cols 只移动单元格内容，
-    不移动 column_dimensions，因此删除后需重置所有列的 hidden 状态，
-    交由 adjust_excel_for_print 中的 _hide_columns 按表头名重新设置。
+    不应占用打印位置。列删除经由 _delete_cols_with_merge 完成，
+    hidden 标记随数据同步左移，因此这里的判断始终可信。
+    最后重置所有列的 hidden 状态，交由 adjust_excel_for_print
+    中的 _hide_columns 按表头名重新设置。
     """
     to_delete = []
     for col in range(1, ws.max_column + 1):
@@ -789,7 +830,7 @@ def _delete_remaining_hidden_columns(ws) -> None:
     for col in sorted(to_delete, reverse=True):
         _delete_cols_with_merge(ws, col)
         logger.info(f"[HIDDEN-DEL] 删除原始隐藏列 {get_column_letter(col)}")
-    # 重置 hidden 状态，避免 delete_cols 未移动 column_dimensions 导致的错位
+    # 重置 hidden 状态，后续由 _hide_columns 按表头名（部门/岗位/职工号）重设
     for col in range(1, ws.max_column + 1):
         ws.column_dimensions[get_column_letter(col)].hidden = False
 
