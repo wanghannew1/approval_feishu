@@ -793,6 +793,82 @@ class TestCleanupEmptyColumns:
         assert "分管领导审核" in positions, positions
         assert "总经理签字" in positions, positions
 
+    def test_delete_hidden_columns_grouped_col_entry(self):
+        """Regression: 分组 <col min max hidden> 隐藏条目必须整段删除。
+
+        真实案例（吉林农商行 2026.09 工资表）：原始表以一条
+        <col min="27" max="36" hidden="1"/> 标记 AA..AJ 十列隐藏。
+        openpyxl 只把整条挂在首列字母键下，逐列按字母查 hidden 时
+        区间内其余字母返回自动新建的空条目（hidden=False），九列漏删，
+        固化后的中间计算列公开显示。详见
+        docs/decisions/hidden-column-grouped-col-entry.md。
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        ws.cell(row=3, column=1, value="序号")
+        ws.cell(row=3, column=2, value="基本工资")
+        ws.cell(row=3, column=3, value="实发合计")
+        ws.cell(row=4, column=1, value=1)
+        ws.cell(row=4, column=2, value=5500)
+        ws.cell(row=4, column=3, value=4867.68)
+        # 分组隐藏区 4..6 内的普通格：随列丢弃
+        ws.cell(row=4, column=4, value=18883.18)
+        # 整段落在隐藏区内的合并（真实表 AA2:AG3「专项扣除」形态）：
+        # 内容不显示 → 随列丢弃，不得救援
+        ws.cell(row=8, column=4, value="专项扣除")
+        ws.merge_cells(start_row=8, start_column=4, end_row=8, end_column=6)
+        # 分组条目挂在首列字母键下，模拟 <col min="4" max="6" hidden="1"/>
+        dim = ws.column_dimensions["D"]
+        dim.min, dim.max, dim.hidden = 4, 6, True
+
+        _delete_remaining_hidden_columns(ws)
+
+        assert ws.max_column == 3
+        assert [ws.cell(row=3, column=c).value for c in range(1, 4)] == \
+            ["序号", "基本工资", "实发合计"]
+        assert ws.cell(row=4, column=3).value == 4867.68
+        leftover = [c.value for row in ws.iter_rows() for c in row
+                    if c.value not in (None, "") and "专项扣除" in str(c.value)]
+        assert leftover == [], leftover
+        assert not any(d.hidden for d in ws.column_dimensions.values())
+
+    def test_delete_hidden_columns_grouped_entry_partial_rescue(self):
+        """Regression: 分组隐藏区内的合并延伸到存活列时仍须救援。
+
+        分组条目覆盖 4..6 隐藏，合并 D8:H8（4..8）延伸到可见的 7..8 列
+        ——内容实际显示。逐列删除 6、5 后合并收缩为 4..6（整段 doomed），
+        救援跳过、锚点值原地保留，删 4 后随数据左移收缩为 D8:E8，
+        显示布局与原表一致。
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        ws.cell(row=3, column=1, value="序号")
+        ws.cell(row=3, column=2, value="基本工资")
+        ws.cell(row=3, column=3, value="实发合计")
+        ws.cell(row=3, column=7, value="成本合计")
+        ws.cell(row=3, column=8, value="备注")
+        ws.cell(row=4, column=1, value=1)
+        ws.cell(row=4, column=2, value=5500)
+        ws.cell(row=4, column=3, value=4867.68)
+        ws.cell(row=4, column=7, value=100)
+        ws.cell(row=4, column=8, value=200)
+        ws.cell(row=8, column=4, value="分管领导审核：")
+        ws.merge_cells("D8:H8")
+        dim = ws.column_dimensions["D"]
+        dim.min, dim.max, dim.hidden = 4, 6, True
+
+        _delete_remaining_hidden_columns(ws)
+
+        assert ws.max_column == 5
+        assert ws.cell(row=8, column=4).value == "分管领导审核："
+        assert any(str(mr) == "D8:E8" for mr in ws.merged_cells.ranges), (
+            [str(mr) for mr in ws.merged_cells.ranges])
+        assert [ws.cell(row=3, column=c).value for c in range(1, 6)] == \
+            ["序号", "基本工资", "实发合计", "成本合计", "备注"]
+        assert not any(d.hidden for d in ws.column_dimensions.values())
+
     def test_zhibiaoren_right_alignment(self):
         """Test that a cell containing '制表人' gets right/center alignment,
         matching the inline logic from _insert_signature_to_excel_openpyxl."""

@@ -813,20 +813,26 @@ def _remove_empty_columns(ws, cfg, formula_values: Optional[Dict] = None) -> Non
             logger.info(f"[CLEANUP] Moved '{v}' from col {s} to col {d}")
 
 
-def _rescue_merge_anchors_in_column(ws, col: int, doomed_cols: set) -> None:
-    """隐藏列若是某合并单元格的锚点列，且范围延伸到存活列，保留其显示内容。
+def _rescue_partial_hidden_merges(ws, doomed_cols: set) -> None:
+    """删除隐藏列前，抢救"部分隐藏"合并单元格的锚点值。
 
-    锚点在隐藏列、合并范围却延伸到可见列时（真实案例：H10:N10 合并，
+    锚点在隐藏列、合并范围却延伸到存活列时（真实案例：H10:N10 合并，
     H 隐藏，锚点值“分管领导审核：”实际横跨可见的 I..N 显示），内容是
     显示出来的，必须保留：删列前把锚点值搬到范围内第一个存活列并重建
     合并，删除后布局不变。
 
+    必须在任何删列之前、对原始合并范围整体跑一遍：多列隐藏区（分组
+    <col> 条目）右→左逐列删除时，锚点列最后处理，届时合并已被前面的
+    删列收缩成"整段落在 doomed 内"，按收缩后范围判定会误跳过救援，
+    锚点值随锚点列一并丢失（吉林农商行 2026.09 分组隐藏区实测）。
+
     范围完全落在隐藏列内的合并（如 AE3:AE5 的“应纳税所得额”表头）
-    内容不显示，随列一并丢弃，不做处理。
+    内容不显示，随列一并丢弃，不做处理。锚点在存活列的合并不受删列
+    影响（值不会丢），收缩交由 _delete_cols_with_merge 完成。
     """
     for mr in list(ws.merged_cells.ranges):
         mc, r0, mxc, rmax = mr.bounds
-        if mc != col:
+        if mc not in doomed_cols:
             continue
         if all(c in doomed_cols for c in range(mc, mxc + 1)):
             continue
@@ -868,14 +874,30 @@ def _delete_remaining_hidden_columns(ws) -> None:
     最后重置所有列的 hidden 状态，交由 adjust_excel_for_print
     中的 _hide_columns 按表头名重新设置。
     """
-    to_delete = []
-    for col in range(1, ws.max_column + 1):
-        col_letter = get_column_letter(col)
-        if ws.column_dimensions[col_letter].hidden:
-            to_delete.append(col)
-    doomed = set(to_delete)
-    for col in sorted(to_delete, reverse=True):
-        _rescue_merge_anchors_in_column(ws, col, doomed)
+    # hidden 不能逐列按字母查：原始表常以分组条目标记隐藏（如
+    # <col min="27" max="36" hidden="1"/>），openpyxl 只把整条挂在首列
+    # 字母键下，其余字母查到的是自动新建的空条目（hidden=False）——
+    # 吉林农商行 2026.09 表因此漏删 AB..AJ 九列，中间计算列公开显示。
+    # 改为按维度条目的 min..max 展开；程序化创建的单列条目（如
+    # _hide_columns 按字母设 hidden）min/max 未落定，回退到自身键名。
+    # hi 截到 max_column：尾部无内容的隐藏网格列不影响打印，也避免
+    # width 类超长分组（如 min=128 max=16371）撑爆逐列删除。
+    max_col = ws.max_column
+    doomed = set()
+    for dim in ws.column_dimensions.values():
+        if not dim.hidden:
+            continue
+        try:
+            fallback = column_index_from_string(dim.index)
+        except ValueError:
+            fallback = None
+        lo = dim.min or fallback
+        hi = min(dim.max or fallback or 0, max_col)
+        if lo is None or hi < lo:
+            continue
+        doomed.update(range(lo, hi + 1))
+    _rescue_partial_hidden_merges(ws, doomed)
+    for col in sorted(doomed, reverse=True):
         _delete_cols_with_merge(ws, col)
         logger.info(f"[HIDDEN-DEL] 删除原始隐藏列 {get_column_letter(col)}")
     # 重置 hidden 状态，后续由 _hide_columns 按表头名（部门/岗位/职工号）重设

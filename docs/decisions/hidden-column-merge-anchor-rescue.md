@@ -64,6 +64,11 @@
 
 - `app/batch_processor.py`: `_rescue_merge_anchors_in_column`、
   `_delete_remaining_hidden_columns`。
+- **已知缺陷（2026-11-12）**：原始表以分组 `<col min max hidden>` 条目标记隐藏时
+  （如 `<col min="27" max="36" hidden="1"/>`），openpyxl 只在首列字母键下可见，
+  逐列按字母查 hidden 会漏收区间内其余列，doomed 集合不完整，进而误触发本救援
+  （实例：AA2:AG3「专项扣除」整段在隐藏区内却被救援保留）。修复方案见
+  [hidden-column-grouped-col-entry.md](hidden-column-grouped-col-entry.md)。
 - 回归测试：`test/test_batch_processor.py::TestCleanupEmptyColumns::test_delete_hidden_columns_merge_anchor_rules`
   （覆盖"可见合并保留"与"全隐藏丢弃"两种情形）。
 - 事故记录：GitHub issue #53（含 8940c06 补充说明）。
