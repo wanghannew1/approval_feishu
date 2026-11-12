@@ -2090,13 +2090,17 @@ def _insert_signature_to_excel_openpyxl(
             _remove_force_delete_columns(payroll_ws, cfg)
             _rebuild_header_merges(payroll_ws)
 
-        if cfg.get("remove_empty_columns", {}).get("enabled", True):
-            _remove_empty_columns(payroll_ws, cfg)
         # 公式固化后，原始隐藏列（如“应纳税所得额”）已无数据价值，
-        # 统一在此删除，避免占用打印位置。锚点在隐藏列但合并范围延伸到
+        # 统一**先于空列清理**删除：① 空列清理不再从分组 <col> 隐藏条目
+        # 中间拆列，右段 hidden 元数据不会被中途打散（issue #54 缺陷 C
+        # 的触发源；_shift_column_dimensions 的拆段机制仍保留，兜底强删
+        # 岗位等其他中途删列路径）；② 空列清理搬迁签字词时不会再落进
+        # 隐藏列、随后随隐藏列被误删。锚点在隐藏列但合并范围延伸到
         # 可见列的内容（如“分管领导审核：”合并 H10:N10）会在删除前
         # 被搬到收缩后的合并锚点上，布局不变。
         _delete_remaining_hidden_columns(payroll_ws)
+        if cfg.get("remove_empty_columns", {}).get("enabled", True):
+            _remove_empty_columns(payroll_ws, cfg)
         _restore_total_row_borders(payroll_ws)
         positions = find_all_signature_positions(payroll_ws, cfg)
         adjust_excel_for_print(payroll_ws, cfg, id_card_min_width=id_card_min_width)

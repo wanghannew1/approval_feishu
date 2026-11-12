@@ -43,12 +43,14 @@
 4. 全部删除后重置所有列 `hidden=False`，交由 `adjust_excel_for_print` 中的
    `_hide_columns` 按表头名（部门/岗位/职工号）重新设置。
 
-## 与公式固化的顺序
+## 与其他清理步骤的顺序
 
-隐藏列删除位于 `_resolve_formulas_via_engine`（全表公式 → 静态数值固化，
-`batch_processor.py:2044`）**之后**（删隐藏列在 `:2057`）。固化后全表不存在
-引用关系，删除被可见列引用的隐藏中间列（应纳税所得额 → 个税链）不会打断
-派生数值。
+隐藏列删除位于 `_resolve_formulas_via_engine`（全表公式 → 静态数值固化）
+**之后**、`_remove_empty_columns`（空列清理）**之前**（2026-11-12 调整，
+缘由见 [hidden-column-grouped-col-entry.md](hidden-column-grouped-col-entry.md)
+缺陷 C）：固化后全表不存在引用关系，删除被可见列引用的隐藏中间列
+（应纳税所得额 → 个税链）不会打断派生数值；先删隐藏列则空列清理不会再
+从分组 `<col>` 隐藏条目中间拆列，搬迁签字词时也不会落进隐藏列。
 
 边界：固化引擎不可用时（既无 WPS COM 也无 soffice，返回 0），公式保持字符串
 原样，此时删隐藏列会把可见公式打成 `#REF!`。生产机装有 WPS 不触发；如遇
