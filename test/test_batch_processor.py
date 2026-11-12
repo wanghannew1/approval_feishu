@@ -869,6 +869,44 @@ class TestCleanupEmptyColumns:
             ["序号", "基本工资", "实发合计", "成本合计", "备注"]
         assert not any(d.hidden for d in ws.column_dimensions.values())
 
+    def test_shift_dims_survives_midgroup_empty_deletion(self):
+        """Regression: 分组隐藏条目中间列被空列清理删除后，右段 hidden 不得丢失。
+
+        真实案例（吉林农商行 2026.09，issue #54 后续）：分组
+        <col min="27" max="36" hidden="1"/> 中 AH/AI（01-03月应纳税所得额/
+        已扣个税）数据区为空，被 _remove_empty_columns 先删；旧
+        _shift_column_dimensions 跨区间只保留左段，右侧 AJ（01-04月
+        应纳税所得额）左移后丢失 hidden 标记，
+        _delete_remaining_hidden_columns 不再认领，最终公开显示。
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        ws.cell(row=3, column=1, value="序号")
+        ws.cell(row=3, column=2, value="基本工资")
+        ws.cell(row=3, column=3, value="实发合计")
+        ws.cell(row=4, column=1, value=1)
+        ws.cell(row=4, column=2, value=5500)
+        ws.cell(row=4, column=3, value=4867.68)
+        # 分组隐藏区 4..7：col 5/6 数据区为空（被空列清理先删），
+        # col 4/7 有静态数值（清理不动；col 7 为"01-04月应纳税所得额"形态）
+        ws.cell(row=4, column=4, value=796.6)
+        ws.cell(row=4, column=7, value=23.9)
+        dim = ws.column_dimensions["D"]
+        dim.min, dim.max, dim.hidden = 4, 7, True
+
+        cfg = get_payroll_config()
+        _remove_empty_columns(ws, cfg)
+        _delete_remaining_hidden_columns(ws)
+
+        assert ws.max_column == 3
+        assert [ws.cell(row=3, column=c).value for c in range(1, 4)] == \
+            ["序号", "基本工资", "实发合计"]
+        leftover = [c.value for row in ws.iter_rows() for c in row
+                    if c.value not in (None, "") and c.column > 3]
+        assert leftover == [], leftover
+        assert not any(d.hidden for d in ws.column_dimensions.values())
+
     def test_zhibiaoren_right_alignment(self):
         """Test that a cell containing '制表人' gets right/center alignment,
         matching the inline logic from _insert_signature_to_excel_openpyxl."""

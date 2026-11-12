@@ -523,10 +523,24 @@ def _shift_column_dimensions(ws, col: int, amount: int) -> None:
     标记的清理（_remove_empty_columns 的隐藏列跳过、
     _delete_remaining_hidden_columns）都会把真实数据列误当隐藏列删掉
     （曾导致 应发工资/实发合计 被误删）。
+
+    与删除区间相交的条目必须**拆段**：左段原位保留，右段（含条目起点
+    落在删除区间内、范围向右延伸的情形）左移后按原属性新建条目。
+    只保留左段或整条丢弃会让右段 hidden/width 随删列静默丢失——分组
+    隐藏条目（如 <col min="27" max="36" hidden="1"/>）中间的空列被
+    _remove_empty_columns 先删时，右侧"01-04月应纳税所得额"左移后
+    丢失 hidden 标记，_delete_remaining_hidden_columns 不再认领，
+    最终公开显示（吉林农商行 2026.09 实测，issue #54）。
     """
     dims = ws.column_dimensions
     remapped: Dict[str, Any] = {}
     for key, dim in list(dims.items()):
+        if dim.min is None and dim.max is None and not dim.hidden:
+            # __getitem__ 自动新建的占位条目：不携带任何自定义元数据，
+            # 不参与移动（需要时 openpyxl 会按新列字母重建等价条目）。
+            # 参与移动会与拆段新建的右段条目键冲突，把 hidden 标记
+            # 覆盖掉（空列清理逐列扫 hidden 时产生的占位条目实测）。
+            continue
         try:
             idx = column_index_from_string(key)
         except ValueError:
@@ -541,11 +555,17 @@ def _shift_column_dimensions(ws, col: int, amount: int) -> None:
             # 完全在右侧：整体左移
             dim.min, dim.max = dmin - amount, dmax - amount
             remapped[get_column_letter(dim.min)] = dim
-        elif dmin < col:
-            # 跨删除区间：截断，保留左侧段
-            dim.min, dim.max = dmin, col - 1
-            remapped[key] = dim
-        # 完全落在删除区间内：元数据随列一并丢弃
+        else:
+            # 与删除区间相交：拆段保留所有幸存部分（中段随列丢弃）
+            if dmin < col:
+                # 左段原位保留
+                dim.min, dim.max = dmin, col - 1
+                remapped[key] = dim
+            if dmax >= col + amount:
+                # 右段左移，hidden/width/style 等属性与原条目一致
+                tail = copy(dim)
+                tail.min, tail.max = col, dmax - amount
+                remapped[get_column_letter(col)] = tail
     dims.clear()
     dims.update(remapped)
 

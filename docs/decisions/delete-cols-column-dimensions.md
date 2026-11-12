@@ -45,7 +45,11 @@ openpyxl 的 `ws.delete_cols()` / `ws.insert_cols()` **只移动单元格内容�
 
 1. **全项目禁止直接调用 `ws.delete_cols` / `ws.insert_cols` 做列删除**。列删除唯一入口是
    `_delete_cols_with_merge`，它在 `delete_cols` 之后调用 `_shift_column_dimensions` 把
-   column_dimensions 同步左移（右侧整体平移、跨删除区间截断、完全落区丢弃元数据）。
+   column_dimensions 同步左移。与删除区间相交的条目必须**拆段**（左段原位保留、
+   右段左移后按原属性新建条目）——只保留左段会让右段的 hidden/width 随删列静默
+   丢失（分组隐藏条目中间列被空列清理先删时，右侧"01-04月应纳税所得额"因此漏删，
+   见 [hidden-column-grouped-col-entry.md](hidden-column-grouped-col-entry.md) 缺陷 C）；
+   完全落在删除区间内的条目元数据随列丢弃。
 2. 任何**读** hidden 标记的逻辑（`_remove_empty_columns` 的隐藏列跳过、
    `_delete_remaining_hidden_columns`、`_auto_column_width`）可以信任标记，前提是
    之前的删列都走了统一入口。新代码若引入新的删列路径，必须复用 `_delete_cols_with_merge`。
